@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'app_model.dart';
+import 'core/reader_icon.dart';
 
 /// 固定的 0–9 数字键盘，兼容触屏和物理键盘；不会唤起系统软键盘。
 class PinPad extends StatefulWidget {
@@ -107,116 +108,136 @@ class _PinPadState extends State<PinPad> {
       return KeyEventResult.ignored;
     },
     child: LayoutBuilder(
-      builder: (context, constraints) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: SizedBox(
-              width: 290,
-              height: 440,
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.lock_outline_rounded,
-                    size: 28,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    widget.title,
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    widget.subtitle,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      4,
-                      (i) => Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: Icon(
-                          i < digits.length
-                              ? Icons.circle
-                              : Icons.circle_outlined,
-                          size: 13,
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 400;
+        final keyHeight = compact ? 48.0 : 60.0;
+        const keySpacing = 8.0;
+        return Center(
+          child: Padding(
+            padding: EdgeInsets.all(compact ? 12 : 20),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                width: 290,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!compact) ...[
+                      ReaderIcon(
+                        ReaderGlyph.lock,
+                        size: 28,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    Text(
+                      widget.title,
+                      style: compact
+                          ? Theme.of(context).textTheme.titleLarge
+                          : Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      widget.subtitle,
+                      maxLines: 2,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    SizedBox(height: compact ? 16 : 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                        4,
+                        (i) => Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: ReaderIcon(
+                            i < digits.length
+                                ? ReaderGlyph.circle
+                                : ReaderGlyph.circleOutline,
+                            size: 13,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  SizedBox(
-                    height: 42,
-                    child: Center(
-                      child: waiting
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(
-                              remaining > 0 ? '$remaining 秒后重试' : message ?? '',
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.error,
-                                fontSize: 12,
+                    SizedBox(
+                      height: compact ? 32 : 42,
+                      child: Center(
+                        child: waiting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(
+                                remaining > 0
+                                    ? '$remaining 秒后重试'
+                                    : message ?? '',
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                  fontSize: 12,
+                                ),
                               ),
-                            ),
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: GridView.builder(
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: 12,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            childAspectRatio: 1.45,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 8,
-                          ),
-                      itemBuilder: (context, index) {
-                        if (index == 9) {
-                          return const SizedBox.shrink();
-                        }
-                        final value = index == 10
-                            ? '0'
-                            : index == 11
-                            ? 'delete'
-                            : '${index + 1}';
-                        return Semantics(
-                          label: value == 'delete' ? '删除一位' : value,
-                          button: true,
-                          child: FilledButton.tonal(
-                            onPressed: waiting || remaining > 0
-                                ? null
-                                : () => enter(value),
-                            style: FilledButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              shape: const StadiumBorder(),
-                            ),
-                            child: value == 'delete'
-                                ? const Icon(Icons.backspace_outlined, size: 21)
-                                : Text(
-                                    value,
-                                    style: const TextStyle(
-                                      fontSize: 27,
-                                      fontWeight: FontWeight.w300,
+                    // 四行的实际高度完全确定，显式清除 GridView 自动插入的系统边距。
+                    SizedBox(
+                      height: keyHeight * 4 + keySpacing * 3,
+                      child: GridView.builder(
+                        padding: EdgeInsets.zero,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: 12,
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          mainAxisExtent: keyHeight,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: keySpacing,
+                        ),
+                        itemBuilder: (context, index) {
+                          if (index == 9) {
+                            return const SizedBox.shrink();
+                          }
+                          final value = index == 10
+                              ? '0'
+                              : index == 11
+                              ? 'delete'
+                              : '${index + 1}';
+                          return Semantics(
+                            label: value == 'delete' ? '删除一位' : value,
+                            button: true,
+                            child: FilledButton.tonal(
+                              onPressed: waiting || remaining > 0
+                                  ? null
+                                  : () => enter(value),
+                              style: FilledButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                shape: const StadiumBorder(),
+                              ),
+                              child: value == 'delete'
+                                  ? const ReaderIcon(
+                                      ReaderGlyph.backspace,
+                                      size: 21,
+                                    )
+                                  : Text(
+                                      value,
+                                      style: const TextStyle(
+                                        fontSize: 27,
+                                        fontWeight: FontWeight.w300,
+                                      ),
                                     ),
-                                  ),
-                          ),
-                        );
-                      },
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     ),
   );
 }
@@ -260,7 +281,7 @@ class _PinSetupState extends State<_PinSetup> {
               child: IconButton(
                 tooltip: '取消',
                 onPressed: saving ? null : () => Navigator.pop(context),
-                icon: const Icon(Icons.close),
+                icon: const ReaderIcon(ReaderGlyph.close),
               ),
             ),
             Expanded(

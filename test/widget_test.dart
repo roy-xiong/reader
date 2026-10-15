@@ -199,6 +199,9 @@ void main() {
           openSettings: () async {},
         ),
       );
+      final card = tester.getRect(find.byTooltip('阅读的时光\nReader'));
+      expect(card.height, lessThanOrEqualTo(150.1));
+      expect(card.width, lessThanOrEqualTo(130));
       if (size.width == 1400) {
         await tester.runAsync(() => _capture(boundary, 'shelf-wide'));
       }

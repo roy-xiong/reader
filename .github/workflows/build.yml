@@ -51,7 +51,7 @@ jobs:
           path: ~/.android/debug.keystore
           key: reader-test-signing-v1
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build apk --release --no-pub --build-number=${{ github.run_number }}
+      - run: flutter build apk --release --no-tree-shake-icons --no-pub --build-number=${{ github.run_number }}
       - name: Collect APK
         run: |
           mkdir -p dist
@@ -73,7 +73,7 @@ jobs:
           git clone --depth 1 --branch 3.44.4 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build macos --release --no-pub --build-number=${{ github.run_number }}
+      - run: flutter build macos --release --no-tree-shake-icons --no-pub --build-number=${{ github.run_number }}
       - name: Package universal macOS app
         run: bash tool/package_macos.sh
       - uses: actions/upload-artifact@v4

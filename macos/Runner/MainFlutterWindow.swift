@@ -1,7 +1,7 @@
 import Cocoa
 import FlutterMacOS
 
-/// 负责透明窗口、系统菜单和文件面板。正文透明度由 Flutter 背景独立控制。
+/// 原生磨砂窗口、统一圆角、系统菜单和文件面板。正文不透明度独立控制。
 class MainFlutterWindow: NSWindow {
   private var bridge: FlutterMethodChannel?
   private var choosing = false
@@ -10,7 +10,27 @@ class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
     let controller = FlutterViewController()
     let originalFrame = frame
-    contentViewController = controller
+    // 扩展内容到标题栏下方，由原生磨砂背景连续覆盖窗口顶部和阅读区域。
+    styleMask.insert(.fullSizeContentView)
+    let container = NSViewController()
+    let glass = NSVisualEffectView()
+    glass.material = .underWindowBackground
+    glass.blendingMode = .behindWindow
+    glass.state = .active
+    glass.wantsLayer = true
+    glass.layer?.cornerRadius = 12
+    glass.layer?.masksToBounds = true
+    container.view = glass
+    container.addChild(controller)
+    glass.addSubview(controller.view)
+    controller.view.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      controller.view.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+      controller.view.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+      controller.view.topAnchor.constraint(equalTo: glass.topAnchor, constant: 32),
+      controller.view.bottomAnchor.constraint(equalTo: glass.bottomAnchor)
+    ])
+    contentViewController = container
     setFrame(originalFrame, display: true)
     minSize = NSSize(width: 300, height: 320)
     setContentSize(NSSize(width: 1000, height: 740))
@@ -37,8 +57,14 @@ class MainFlutterWindow: NSWindow {
           result(directory.path)
         } catch { result(FlutterError(code: "storage", message: "无法创建书架目录", details: nil)) }
       case "readingMode":
-        let reading = call.arguments as? Bool ?? false
-        self.hasShadow = !reading
+        self.hasShadow = true
+        result(nil)
+      case "appearance":
+        switch call.arguments as? String {
+        case "dark": self.appearance = NSAppearance(named: .darkAqua)
+        case "light": self.appearance = NSAppearance(named: .aqua)
+        default: self.appearance = nil
+        }
         result(nil)
       case "pick":
         let args = call.arguments as? [String: Any]
@@ -57,7 +83,7 @@ class MainFlutterWindow: NSWindow {
       default: result(FlutterMethodNotImplemented)
       }
     }
-    installMenus()
+    DispatchQueue.main.async { [weak self] in self?.installMenus() }
     super.awakeFromNib()
   }
 
@@ -113,7 +139,7 @@ class MainFlutterWindow: NSWindow {
     panel.title = font ? "选择字体" : (folder ? "选择电子书文件夹" : "导入电子书")
     panel.canChooseDirectories = folder
     panel.canChooseFiles = !folder
-    panel.allowsMultipleSelection = !font && !folder
+    panel.allowsMultipleSelection = !folder
     let extensions = font ? ["ttf", "otf"] : ["txt", "epub", "mobi", "azw", "azw3", "html", "htm"]
     if !folder { panel.allowedFileTypes = extensions }
     panel.beginSheetModal(for: self) { [weak self] response in
@@ -141,9 +167,9 @@ class MainFlutterWindow: NSWindow {
             } else { files = [selected] }
             for source in files {
               let size = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-              guard size > 0 && size <= 64 * 1024 * 1024 else {
+              guard size > 0 && (font || size <= 64 * 1024 * 1024) else {
                 throw NSError(domain: "Reader", code: 1,
-                  userInfo: [NSLocalizedDescriptionKey: "请选择非空且不超过 64 MB 的文件"])
+                  userInfo: [NSLocalizedDescriptionKey: font ? "请选择非空的字体文件" : "请选择非空且不超过 64 MB 的电子书"])
               }
               let name = UUID().uuidString.lowercased() + "_" + source.lastPathComponent
               let target = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(name)

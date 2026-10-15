@@ -22,6 +22,7 @@ import java.util.concurrent.Executors
 class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var pendingResult: MethodChannel.Result? = null
+    private var selectingFont = false
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var destroyed = false
@@ -40,11 +41,11 @@ class MainActivity : FlutterActivity() {
                         } else {
                             pendingResult = result
                             try {
-                                val font = call.argument<Boolean>("font") == true
+                                selectingFont = call.argument<Boolean>("font") == true
                                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                                     addCategory(Intent.CATEGORY_OPENABLE)
                                     type = "*/*"
-                                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, !font)
+                                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                                 }
                                 @Suppress("DEPRECATION")
                                 startActivityForResult(intent, PICK_REQUEST)
@@ -73,7 +74,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /** 文件复制放到串行执行器，限制每个输入大小，并响应 Activity 销毁时的中断。 */
+    /** 文件复制放到串行执行器；仅电子书限制大小，字体使用固定缓冲区，并响应销毁中断。 */
     @Deprecated("系统兼容回调", ReplaceWith("super.onActivityResult(requestCode, resultCode, data)"))
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -91,6 +92,8 @@ class MainActivity : FlutterActivity() {
                 clip.getItemAt(index)?.uri?.let { uris.add(it) }
             }
         } else data.data?.let { uris.add(it) }
+        val font = selectingFont
+        selectingFont = false
         val resolver = contentResolver
         val cache = cacheDir
         worker.execute {
@@ -115,7 +118,7 @@ class MainActivity : FlutterActivity() {
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 total += count
-                                if (total > MAX_BYTES) throw IllegalArgumentException("文件超过 64 MB")
+                                if (!font && total > MAX_BYTES) throw IllegalArgumentException("文件超过 64 MB")
                                 output.write(buffer, 0, count)
                             }
                         }

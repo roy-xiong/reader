@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../domain/models.dart';
 import '../domain/pagination.dart';
 import 'app_model.dart';
+import 'core/reader_icon.dart';
 
 /// 阅读页默认仅显示正文和进度，点击中央时才显示临时操作栏。
 class ReaderScreen extends StatefulWidget {
@@ -262,7 +263,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                 trailing: IconButton(
                   tooltip: '关闭',
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
+                  icon: const ReaderIcon(ReaderGlyph.close),
                 ),
               ),
               const Divider(height: 1),
@@ -302,8 +303,8 @@ class ReaderScreenState extends State<ReaderScreen> {
                           trailing: bookmarks
                               ? IconButton(
                                   tooltip: '删除书签',
-                                  icon: const Icon(
-                                    Icons.bookmark_remove_outlined,
+                                  icon: const ReaderIcon(
+                                    ReaderGlyph.removeBookmark,
                                   ),
                                   onPressed: () async {
                                     try {
@@ -499,7 +500,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                               IconButton(
                                 tooltip: '返回书架',
                                 onPressed: () => Navigator.pop(context),
-                                icon: const Icon(Icons.arrow_back),
+                                icon: const ReaderIcon(ReaderGlyph.back),
                               ),
                               Expanded(
                                 child: Text(
@@ -511,23 +512,23 @@ class ReaderScreenState extends State<ReaderScreen> {
                               IconButton(
                                 tooltip: '搜索正文',
                                 onPressed: showSearch,
-                                icon: const Icon(Icons.search),
+                                icon: const ReaderIcon(ReaderGlyph.search),
                               ),
                               IconButton(
                                 tooltip: '添加 / 移除书签',
                                 onPressed: toggleBookmark,
-                                icon: Icon(
+                                icon: ReaderIcon(
                                   book.bookmarks.any(
                                         (m) => m.offset == current?.start,
                                       )
-                                      ? Icons.bookmark
-                                      : Icons.bookmark_outline,
+                                      ? ReaderGlyph.bookmark
+                                      : ReaderGlyph.bookmarkOutline,
                                 ),
                               ),
                               IconButton(
                                 tooltip: '设置',
                                 onPressed: widget.openSettings,
-                                icon: const Icon(Icons.tune_rounded),
+                                icon: const ReaderIcon(ReaderGlyph.settings),
                               ),
                             ],
                           ),
@@ -578,8 +579,8 @@ class ReaderScreenState extends State<ReaderScreen> {
                                   children: [
                                     TextButton.icon(
                                       onPressed: () => _contents(),
-                                      icon: const Icon(
-                                        Icons.format_list_bulleted,
+                                      icon: const ReaderIcon(
+                                        ReaderGlyph.list,
                                         size: 18,
                                       ),
                                       label: const Text('目录'),
@@ -587,8 +588,8 @@ class ReaderScreenState extends State<ReaderScreen> {
                                     TextButton.icon(
                                       onPressed: () =>
                                           _contents(bookmarks: true),
-                                      icon: const Icon(
-                                        Icons.bookmarks_outlined,
+                                      icon: const ReaderIcon(
+                                        ReaderGlyph.bookmarks,
                                         size: 18,
                                       ),
                                       label: const Text('书签'),
@@ -597,7 +598,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                                       tooltip: '收起工具',
                                       onPressed: () =>
                                           setState(() => controls = false),
-                                      icon: const Icon(Icons.expand_more),
+                                      icon: const ReaderIcon(ReaderGlyph.down),
                                     ),
                                   ],
                                 ),
@@ -891,7 +892,7 @@ class _SearchDialogState extends State<_SearchDialog> {
                     onChanged: query,
                     decoration: const InputDecoration(
                       hintText: '搜索全文',
-                      prefixIcon: Icon(Icons.search),
+                      prefixIcon: ReaderIcon(ReaderGlyph.search),
                       isDense: true,
                     ),
                   ),
@@ -899,7 +900,7 @@ class _SearchDialogState extends State<_SearchDialog> {
                 IconButton(
                   tooltip: '关闭',
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
+                  icon: const ReaderIcon(ReaderGlyph.close),
                 ),
               ],
             ),

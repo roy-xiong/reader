@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import '../domain/models.dart';
 import 'book_parser.dart';
+import 'font_service.dart';
 
 /// 原子保存书架、设置和密码校验记录。写入串行执行，失败不会污染后续任务。
 class LibraryRepository {
@@ -37,6 +38,9 @@ class LibraryRepository {
         ReaderSettings.fromJson(
           Map<String, dynamic>.from(map['settings'] as Map),
         );
+        for (final font in map['fonts'] as List? ?? []) {
+          ReaderFont.fromJson(Map<String, dynamic>.from(font as Map));
+        }
         if (map['pin'] != null) {
           PinService.validateRecord(
             Map<String, dynamic>.from(map['pin'] as Map),
@@ -114,16 +118,52 @@ class LibraryRepository {
     }
   }
 
+  /// 字体使用流式散列和文件复制，不设置 20 MB / 64 MB 的固定上限。
   Future<String> importFont(String source) async {
-    if (await File(source).length() > 20 * 1024 * 1024) {
-      throw const FormatException('字体文件不能超过 20 MB');
-    }
-    final digest = (await sha256.bind(File(source).openRead()).first)
-        .toString();
+    await FontService.validate(File(source));
+    final digest = await Isolate.run(
+      () async => (await sha256.bind(File(source).openRead()).first).toString(),
+    );
     final directory = Directory(p.join(root.path, 'fonts'));
     await directory.create(recursive: true);
-    await File(source).copy(p.join(directory.path, '$digest.ttf'));
+    final target = fontFile(digest);
+    if (!await target.exists()) {
+      await File(source).copy(target.path);
+    }
     return digest;
+  }
+
+  /// 合并持久化目录与旧版散落的字体，迁移时不会删除或重新下载任何字体。
+  Future<List<ReaderFont>> recoverFonts(
+    List<ReaderFont> catalog, {
+    String? selectedId,
+    String? selectedName,
+  }) async {
+    final fonts = {for (final font in catalog) font.id: font};
+    final directory = Directory(p.join(root.path, 'fonts'));
+    if (!await directory.exists()) {
+      return List.unmodifiable(fonts.values);
+    }
+    await for (final entry in directory.list(followLinks: false)) {
+      if (entry is! File || p.extension(entry.path).toLowerCase() != '.ttf') {
+        continue;
+      }
+      final id = p.basenameWithoutExtension(entry.path);
+      if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(id) || fonts.containsKey(id)) {
+        continue;
+      }
+      final stat = await entry.stat();
+      final name = id == selectedId && selectedName?.isNotEmpty == true
+          ? selectedName!
+          : await FontService.readName(entry) ?? '字体 ${id.substring(0, 8)}';
+      fonts[id] = ReaderFont(
+        id: id,
+        name: name,
+        bytes: stat.size,
+        importedAt: stat.modified.millisecondsSinceEpoch,
+      );
+    }
+    return List.unmodifiable(fonts.values);
   }
 
   File fontFile(String id) {

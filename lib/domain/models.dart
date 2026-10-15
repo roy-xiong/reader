@@ -87,6 +87,37 @@ class ReaderSettings {
 double _number(dynamic n, double fallback, double min, double max) =>
     n is num && n.isFinite ? n.toDouble().clamp(min, max) : fallback;
 
+/// 已导入字体的持久化记录，保留显示名称、内容标识和原始文件大小。
+@immutable
+class ReaderFont {
+  const ReaderFont({
+    required this.id,
+    required this.name,
+    required this.bytes,
+    required this.importedAt,
+  });
+  final String id, name;
+  final int bytes, importedAt;
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'bytes': bytes,
+    'importedAt': importedAt,
+  };
+  factory ReaderFont.fromJson(Map<String, dynamic> json) {
+    final id = json['id'] as String;
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(id)) {
+      throw const FormatException('字体标识损坏');
+    }
+    return ReaderFont(
+      id: id,
+      name: json['name'] as String,
+      bytes: json['bytes'] as int? ?? 0,
+      importedAt: json['importedAt'] as int? ?? 0,
+    );
+  }
+}
+
 /// 字符偏移采用 UTF-16，与 Flutter 的 TextPosition 保持一致。
 @immutable
 class BookMark {

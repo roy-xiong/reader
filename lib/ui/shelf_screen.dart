@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
 import 'app_model.dart';
+import 'core/reader_icon.dart';
 
 class ShelfScreen extends StatefulWidget {
   const ShelfScreen({
@@ -59,12 +60,12 @@ class _ShelfScreenState extends State<ShelfScreen> {
                 IconButton(
                   tooltip: '锁定',
                   onPressed: widget.model.lock,
-                  icon: const Icon(Icons.lock_outline),
+                  icon: const ReaderIcon(ReaderGlyph.lock),
                 ),
               IconButton(
                 tooltip: '设置',
                 onPressed: widget.openSettings,
-                icon: const Icon(Icons.tune_rounded),
+                icon: const ReaderIcon(ReaderGlyph.settings),
               ),
               const SizedBox(width: 12),
             ],
@@ -113,8 +114,8 @@ class _ShelfScreenState extends State<ShelfScreen> {
                                         : () => widget.model.importBooks(
                                             folder: true,
                                           ),
-                                    icon: const Icon(
-                                      Icons.folder_open,
+                                    icon: const ReaderIcon(
+                                      ReaderGlyph.folder,
                                       size: 18,
                                     ),
                                     label: const Text('导入文件夹'),
@@ -123,7 +124,10 @@ class _ShelfScreenState extends State<ShelfScreen> {
                                   onPressed: widget.model.busy
                                       ? null
                                       : () => widget.model.importBooks(),
-                                  icon: const Icon(Icons.add, size: 18),
+                                  icon: const ReaderIcon(
+                                    ReaderGlyph.add,
+                                    size: 18,
+                                  ),
                                   label: const Text('导入书籍'),
                                 ),
                               ],
@@ -159,7 +163,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
                               child: TextField(
                                 controller: search,
                                 decoration: const InputDecoration(
-                                  prefixIcon: Icon(Icons.search),
+                                  prefixIcon: ReaderIcon(ReaderGlyph.search),
                                   hintText: '搜索书名、作者',
                                   isDense: true,
                                 ),
@@ -186,7 +190,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
                                   child: Text('书名排序'),
                                 ),
                               ],
-                              icon: const Icon(Icons.sort_rounded),
+                              icon: const ReaderIcon(ReaderGlyph.sort),
                             ),
                           ],
                         ),
@@ -201,8 +205,8 @@ class _ShelfScreenState extends State<ShelfScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
-                                  Icons.auto_stories_outlined,
+                                ReaderIcon(
+                                  ReaderGlyph.library,
                                   size: 64,
                                   color: colors.primary.withValues(alpha: .6),
                                 ),
@@ -226,10 +230,10 @@ class _ShelfScreenState extends State<ShelfScreen> {
                       sliver: SliverGrid.builder(
                         gridDelegate:
                             const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 240,
-                              mainAxisExtent: 300,
-                              crossAxisSpacing: 22,
-                              mainAxisSpacing: 24,
+                              maxCrossAxisExtent: 120,
+                              mainAxisExtent: 150,
+                              crossAxisSpacing: 11,
+                              mainAxisSpacing: 16,
                             ),
                         itemCount: books.length,
                         itemBuilder: (context, index) {
@@ -282,6 +286,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
   );
 }
 
+/// 紧凑书籍卡片：宽高约为初版的一半，仍保留书名、进度和完整的操作入口。
 class _BookCard extends StatelessWidget {
   const _BookCard({
     required this.book,
@@ -302,131 +307,131 @@ class _BookCard extends StatelessWidget {
     final color =
         palettes[int.parse(book.id.substring(0, 2), radix: 16) %
             palettes.length];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Material(
-            color: color,
-            borderRadius: BorderRadius.circular(12),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: open,
-              child: Stack(
-                children: [
-                  Positioned(
-                    left: 9,
-                    top: 0,
-                    bottom: 0,
-                    child: Container(
-                      width: 1,
-                      color: Colors.white.withValues(alpha: .2),
+    return Tooltip(
+      message: '${book.title}${book.author.isEmpty ? '' : '\n${book.author}'}',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Material(
+              color: color,
+              borderRadius: BorderRadius.circular(6),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: open,
+                child: Stack(
+                  children: [
+                    Positioned(
+                      left: 5,
+                      top: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 1,
+                        color: Colors.white.withValues(alpha: .2),
+                      ),
                     ),
-                  ),
-                  Positioned(
-                    right: -45,
-                    bottom: -50,
-                    child: Icon(
-                      Icons.menu_book_rounded,
-                      size: 185,
-                      color: Colors.white.withValues(alpha: .055),
+                    Positioned(
+                      right: -16,
+                      bottom: -22,
+                      child: ReaderIcon(
+                        ReaderGlyph.book,
+                        size: 84,
+                        color: Colors.white.withValues(alpha: .06),
+                      ),
                     ),
-                  ),
-                  Positioned.fill(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(23, 23, 18, 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            book.format,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              letterSpacing: 2,
-                              color: Colors.white60,
+                    Positioned.fill(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 9, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              book.format,
+                              maxLines: 1,
+                              style: const TextStyle(
+                                fontSize: 7,
+                                letterSpacing: 1,
+                                color: Colors.white60,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 24),
-                          Expanded(
-                            child: Align(
-                              alignment: Alignment.topLeft,
-                              child: Text(
-                                book.title,
-                                maxLines: 4,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  height: 1.5,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w500,
+                            const SizedBox(height: 7),
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.topLeft,
+                                child: Text(
+                                  book.title,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    height: 1.35,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          Text(
-                            book.author.isEmpty ? '本地藏书' : book.author,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 3),
+          SizedBox(
+            height: 24,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    book.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ],
-              ),
+                ),
+                SizedBox(
+                  width: 24,
+                  child: PopupMenuButton<String>(
+                    tooltip: '书籍操作',
+                    padding: EdgeInsets.zero,
+                    icon: const ReaderIcon(ReaderGlyph.more, size: 15),
+                    onSelected: (_) => delete(),
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'delete', child: Text('移除书籍')),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                book.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
+          Text(
+            book.lastOpened == 0
+                ? '尚未阅读'
+                : '已读 ${(book.progress * 100).toStringAsFixed(1)}%',
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: 9,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-            SizedBox(
-              width: 28,
-              height: 28,
-              child: PopupMenuButton<String>(
-                tooltip: '书籍操作',
-                padding: EdgeInsets.zero,
-                iconSize: 18,
-                onSelected: (_) => delete(),
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'delete', child: Text('移除书籍')),
-                ],
-              ),
+          ),
+          const SizedBox(height: 5),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: book.progress,
+              minHeight: 2,
+              backgroundColor: color.withValues(alpha: .15),
             ),
-          ],
-        ),
-        const SizedBox(height: 3),
-        Text(
-          book.lastOpened == 0
-              ? '尚未阅读'
-              : '已读 ${(book.progress * 100).toStringAsFixed(1)}%',
-          style: TextStyle(
-            fontSize: 11,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
-        ),
-        const SizedBox(height: 7),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(2),
-          child: LinearProgressIndicator(
-            value: book.progress,
-            minHeight: 2,
-            backgroundColor: color.withValues(alpha: .15),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

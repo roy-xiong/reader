@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
 import 'app_model.dart';
+import 'core/reader_icon.dart';
 import 'lock_screen.dart';
 
 /// 独立设置页。背景透明度和所有排版选项集中于此，阅读页保持简洁。
@@ -51,7 +52,7 @@ class SettingsScreen extends StatelessWidget {
                     '${(s.backgroundOpacity * 100).round()}%',
                     (v) => update(s.copyWith(backgroundOpacity: v)),
                     subtitle: Platform.isMacOS
-                        ? '0% 可直接透出桌面，正文保持清晰'
+                        ? '0% 显示磨砂玻璃背景，正文保持清晰'
                         : '桌面穿透效果在 macOS 版本生效',
                   ),
                   _color(
@@ -74,26 +75,45 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ),
                   _section(context, '字体与排版'),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('阅读字体'),
-                    subtitle: Text(s.fontName ?? '系统字体'),
-                    trailing: Wrap(
-                      spacing: 4,
-                      children: [
-                        if (s.fontId != null)
-                          IconButton(
-                            tooltip: '恢复系统字体',
-                            onPressed: () =>
-                                update(s.copyWith(resetFont: true)),
-                            icon: const Icon(Icons.restore),
+                  Row(
+                    children: [
+                      Expanded(child: Text('已导入字体（${model.fonts.length}）')),
+                      OutlinedButton(
+                        onPressed: model.busy ? null : model.importFont,
+                        child: const Text('导入字体'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('font-${s.fontId}-${model.fonts.length}'),
+                    initialValue: model.fonts.any((font) => font.id == s.fontId)
+                        ? s.fontId
+                        : '',
+                    isExpanded: true,
+                    icon: const ReaderIcon(ReaderGlyph.down, size: 18),
+                    decoration: const InputDecoration(labelText: '阅读字体'),
+                    items: [
+                      const DropdownMenuItem(value: '', child: Text('系统字体')),
+                      ...model.fonts.map(
+                        (font) => DropdownMenuItem(
+                          value: font.id,
+                          child: Text(
+                            font.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        OutlinedButton(
-                          onPressed: model.busy ? null : model.importFont,
-                          child: const Text('导入 TTF'),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
+                    onChanged: model.busy
+                        ? null
+                        : (id) => model.selectFont(id == '' ? null : id),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '支持导入多个 TTF / OTF；记录会保存，可随时切换。',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                   _slider(
                     '字号',
@@ -179,7 +199,11 @@ class SettingsScreen extends StatelessWidget {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: Text(model.hasPin ? '已启用四位数字密码' : '保护私人书架'),
-                    subtitle: const Text('重新启动或从后台返回时解锁。请牢记密码。'),
+                    subtitle: Text(
+                      Platform.isMacOS
+                          ? '重新启动或手动锁定后解锁；最小化恢复保持当前状态。'
+                          : '重新启动或从后台返回时解锁。请牢记密码。',
+                    ),
                     trailing: OutlinedButton(
                       onPressed: () => showPinSetup(context, model),
                       child: Text(model.hasPin ? '修改密码' : '设置密码'),
@@ -197,7 +221,7 @@ class SettingsScreen extends StatelessWidget {
                   _section(context, '关于 Reader'),
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('Reader 1.0.0'),
+                    title: Text('Reader 1.0.1'),
                     subtitle: Text(
                       '本地书架 · 离线阅读\n支持 TXT、EPUB、MOBI、AZW / AZW3、HTML 的可重排文字。\n受 DRM 保护、纯图片和扫描版电子书暂不支持。',
                     ),
@@ -205,11 +229,11 @@ class SettingsScreen extends StatelessWidget {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('开源许可'),
-                    trailing: const Icon(Icons.chevron_right),
+                    trailing: const ReaderIcon(ReaderGlyph.chevronRight),
                     onTap: () => showLicensePage(
                       context: context,
                       applicationName: 'Reader',
-                      applicationVersion: '1.0.0',
+                      applicationVersion: '1.0.1',
                       applicationLegalese: 'GPL-3.0-or-later',
                     ),
                   ),

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
 import 'data/library_repository.dart';
@@ -82,7 +83,12 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
-      model.lock();
+      if (defaultTargetPlatform == TargetPlatform.macOS) {
+        // macOS 最小化只保存状态；启动锁和用户主动锁定继续生效。
+        unawaited(model.flush().catchError((Object _) {}));
+      } else {
+        model.lock();
+      }
     }
   }
 
@@ -229,9 +235,13 @@ ThemeData _theme(Brightness brightness) {
   return ThemeData(
     useMaterial3: true,
     colorScheme: colors,
-    scaffoldBackgroundColor: colors.surface,
+    scaffoldBackgroundColor: defaultTargetPlatform == TargetPlatform.macOS
+        ? colors.surface.withValues(alpha: .86)
+        : colors.surface,
     appBarTheme: AppBarTheme(
-      backgroundColor: colors.surface,
+      backgroundColor: defaultTargetPlatform == TargetPlatform.macOS
+          ? colors.surface.withValues(alpha: .86)
+          : colors.surface,
       scrolledUnderElevation: 0,
     ),
     inputDecorationTheme: InputDecorationTheme(

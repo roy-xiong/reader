@@ -37,6 +37,18 @@ class PlatformService {
     }
   }
 
+  /// 原生磨砂标题栏跟随应用主题。其他平台忽略窗口外观通道。
+  Future<void> appearance(String theme) async {
+    if (!Platform.isMacOS) {
+      return;
+    }
+    try {
+      await channel.invokeMethod<void>('appearance', theme);
+    } catch (_) {
+      /* 兼容旧通道。 */
+    }
+  }
+
   void onMenu(Future<void> Function(String) callback) {
     channel.setMethodCallHandler((call) async {
       await callback(call.method);

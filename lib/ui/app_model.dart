@@ -5,12 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import '../data/library_repository.dart';
+import '../data/font_service.dart';
 import '../data/platform_service.dart';
 import '../domain/models.dart';
 
 /// 应用状态的唯一写入口。界面仅观察状态，持久化操作始终经过仓库串行队列。
 class AppModel extends ChangeNotifier {
-  AppModel(this.repository, this.platform);
+  AppModel(this.repository, this.platform, {FontService? fontService})
+    : fontService = fontService ?? FontService();
+  final FontService fontService;
+  final Set<String> _registeredFonts = {};
+  List<ReaderFont> _fonts = [];
+  List<ReaderFont> get fonts => List.unmodifiable(_fonts);
   final LibraryRepository repository;
   final PlatformService platform;
   ReaderSettings settings = const ReaderSettings();
@@ -45,17 +51,30 @@ class AppModel extends ChangeNotifier {
       failedAttempts = data['failedAttempts'] as int? ?? 0;
       blockedUntil = data['blockedUntil'] as int? ?? 0;
       locked = hasPin;
+      final catalog = (data['fonts'] as List? ?? [])
+          .map((f) => ReaderFont.fromJson(Map<String, dynamic>.from(f as Map)))
+          .toList();
+      _fonts = await repository.recoverFonts(
+        catalog,
+        selectedId: settings.fontId,
+        selectedName: settings.fontName,
+      );
+      if (data['fonts'] == null || _fonts.length != catalog.length) {
+        await flush();
+      }
       try {
         await loadFont();
       } catch (_) {
         error = '自定义字体暂不可用，已使用系统字体';
       }
     }
+    await platform.appearance(settings.theme);
     changed();
   }
 
   Map<String, dynamic> snapshot() => {
-    'version': 1,
+    'version': 2,
+    'fonts': _fonts.map((f) => f.toJson()).toList(),
     'settings': settings.toJson(),
     'books': _books.map((b) => b.toJson()).toList(),
     'pin': _pin,
@@ -187,11 +206,16 @@ class AppModel extends ChangeNotifier {
   }
 
   void updateSettings(ReaderSettings value) {
+    final themeChanged = settings.theme != value.theme;
     settings = value;
+    if (themeChanged) {
+      unawaited(platform.appearance(value.theme));
+    }
     changed();
     _scheduleSave();
   }
 
+  /// 多文件导入先记录字体目录，只加载最后一个选中的字体，避免批量占用内存。
   Future<void> importFont() async {
     if (busy || locked) {
       return;
@@ -199,25 +223,76 @@ class AppModel extends ChangeNotifier {
     busy = true;
     changed();
     var paths = <String>[];
+    final failures = <String>[];
+    ReaderFont? last;
     try {
       paths = await platform.pick(font: true);
-      if (paths.isEmpty) {
-        return;
+      for (final path in paths) {
+        try {
+          final id = await repository.importFont(path);
+          final record = ReaderFont(
+            id: id,
+            name: p
+                .basenameWithoutExtension(path)
+                .replaceFirst(RegExp(r'^[a-f0-9-]{36}_'), ''),
+            bytes: await repository.fontFile(id).length(),
+            importedAt: DateTime.now().millisecondsSinceEpoch,
+          );
+          final existing = _fonts.where((font) => font.id == id).firstOrNull;
+          last = existing ?? record;
+          if (existing == null) {
+            _fonts = [..._fonts, record];
+          }
+        } catch (e) {
+          failures.add('${p.basename(path)}: ${_message(e)}');
+        }
       }
-      final id = await repository.importFont(paths.first);
-      await _loadFontId(id);
-      settings = settings.copyWith(
-        fontId: id,
-        fontName: p
-            .basenameWithoutExtension(paths.first)
-            .replaceFirst(RegExp(r'^[a-f0-9-]{36}_'), ''),
-      );
-      await flush();
+      if (last != null) {
+        try {
+          await _loadFontId(last.id);
+          settings = settings.copyWith(fontId: last.id, fontName: last.name);
+        } catch (e) {
+          failures.add(_message(e));
+        }
+      }
+      if (paths.isNotEmpty) {
+        await flush();
+      }
+      if (failures.isNotEmpty) {
+        error = failures.take(3).join('；');
+      }
     } catch (e) {
       error = _message(e);
     } finally {
       busy = false;
       await platform.discard(paths);
+      changed();
+    }
+  }
+
+  /// 从已导入字体中切换；传入 null 时恢复系统字体，导入记录继续保留。
+  Future<void> selectFont(String? id) async {
+    if (busy || locked) {
+      return;
+    }
+    busy = true;
+    changed();
+    try {
+      if (id == null) {
+        settings = settings.copyWith(resetFont: true);
+      } else {
+        final font = _fonts.where((font) => font.id == id).firstOrNull;
+        if (font == null) {
+          throw const FormatException('字体记录不存在');
+        }
+        await _loadFontId(id);
+        settings = settings.copyWith(fontId: id, fontName: font.name);
+      }
+      await flush();
+    } catch (e) {
+      error = _message(e);
+    } finally {
+      busy = false;
       changed();
     }
   }
@@ -229,22 +304,12 @@ class AppModel extends ChangeNotifier {
     }
   }
 
+  /// 已注册字体复用同一字体族，往返切换时不重复读取和注册大文件。
   Future<void> _loadFontId(String id) async {
-    if (loadedFontId == id) {
-      return;
+    if (!_registeredFonts.contains(id)) {
+      await fontService.register(repository.fontFile(id), 'user_$id');
+      _registeredFonts.add(id);
     }
-    final file = repository.fontFile(id);
-    final bytes = await file.readAsBytes();
-    if (bytes.length < 12) {
-      throw const FormatException('字体文件损坏');
-    }
-    final signature = ByteData.sublistView(bytes).getUint32(0);
-    if (![0x00010000, 0x4f54544f, 0x74746366, 0x74727565].contains(signature)) {
-      throw const FormatException('请选择有效的 TTF / OTF 字体');
-    }
-    final loader = FontLoader('user_$id')
-      ..addFont(Future.value(ByteData.sublistView(bytes)));
-    await loader.load();
     loadedFontId = id;
   }
 
