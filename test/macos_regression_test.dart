@@ -95,30 +95,32 @@ void main() {
     });
   }
 
-  testWidgets('macOS 最小化恢复保持解锁，重新启动仍上锁', (tester) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final model = AppModel(_PinRepository(), PlatformService());
-    await tester.runAsync(model.initialize);
-    expect(model.locked, isTrue);
-    model.locked = false;
-    await tester.pumpWidget(ReaderApp(model: model));
-    for (final state in [
-      AppLifecycleState.inactive,
-      AppLifecycleState.hidden,
-      AppLifecycleState.inactive,
-      AppLifecycleState.resumed,
-    ]) {
-      tester.binding.handleAppLifecycleStateChanged(state);
-    }
-    await tester.pump();
-    expect(model.locked, isFalse);
-    await tester.pumpWidget(const SizedBox.shrink());
-    final restarted = AppModel(_PinRepository(), PlatformService());
-    await tester.runAsync(restarted.initialize);
-    expect(restarted.locked, isTrue);
-    restarted.dispose();
-  });
+  testWidgets(
+    'macOS 最小化恢复保持解锁，重新启动仍上锁',
+    (tester) async {
+      final model = AppModel(_PinRepository(), PlatformService());
+      await tester.runAsync(model.initialize);
+      expect(model.locked, isTrue);
+      model.locked = false;
+      await tester.pumpWidget(ReaderApp(model: model));
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await tester.pump();
+      expect(model.locked, isFalse);
+      await tester.pumpWidget(const SizedBox.shrink());
+      final restarted = AppModel(_PinRepository(), PlatformService());
+      await tester.runAsync(restarted.initialize);
+      expect(restarted.locked, isTrue);
+      restarted.dispose();
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
 }
 
 class _PinRepository extends LibraryRepository {
