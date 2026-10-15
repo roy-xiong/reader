@@ -1,0 +1,47 @@
+import 'dart:io';
+import 'package:flutter/services.dart';
+
+/// 封装原生文件面板和窗口菜单。原生层只返回已复制进缓存的受控路径。
+class PlatformService {
+  static const channel = MethodChannel('com.xiongjian.reader/platform');
+  Future<String> supportPath() async {
+    final path = await channel.invokeMethod<String>('supportPath');
+    if (path == null || path.isEmpty) {
+      throw const FileSystemException('无法获取存储目录');
+    }
+    return path;
+  }
+
+  Future<List<String>> pick({bool folder = false, bool font = false}) async =>
+      await channel.invokeListMethod<String>('pick', {
+        'folder': folder,
+        'font': font,
+      }) ??
+      [];
+
+  /// 清理原生选择器产生的缓存副本；原生层再次校验目录边界。
+  Future<void> discard(List<String> paths) async {
+    if (paths.isEmpty) {
+      return;
+    }
+    try {
+      await channel.invokeMethod<void>('discard', paths);
+    } catch (_) {
+      /* 系统可在后续清理缓存。 */
+    }
+  }
+
+  Future<void> readingMode(bool reading) async {
+    if (Platform.isMacOS) {
+      await channel.invokeMethod<void>('readingMode', reading);
+    }
+  }
+
+  void onMenu(Future<void> Function(String) callback) {
+    channel.setMethodCallHandler((call) async {
+      await callback(call.method);
+    });
+  }
+
+  void dispose() => channel.setMethodCallHandler(null);
+}

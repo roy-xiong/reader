@@ -1,0 +1,108 @@
+name: Build Reader
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: reader-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PUB_HOSTED_URL: https://pub.dev
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Flutter 3.44.4
+        run: |
+          git clone --depth 1 --branch 3.44.4 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze --no-pub
+      - run: flutter test --no-pub --reporter expanded
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reader-ui-checks
+          path: build/qa/
+          if-no-files-found: ignore
+  android:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Flutter and pinned Android tools
+        run: |
+          git clone --depth 1 --branch 3.44.4 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: reader-test-signing-v1
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build apk --release --no-pub --build-number=${{ github.run_number }}
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/Reader-Android.apk
+          sha256sum dist/Reader-Android.apk > dist/Reader-Android.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-android
+          path: dist/
+          compression-level: 0
+  macos:
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Flutter 3.44.4
+        run: |
+          git clone --depth 1 --branch 3.44.4 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build macos --release --no-pub --build-number=${{ github.run_number }}
+      - name: Package universal macOS app
+        run: bash tool/package_macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-macos
+          path: dist/
+          compression-level: 0
+  release:
+    needs: [android, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: reader-android
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: reader-macos
+          path: dist
+          merge-multiple: true
+      - name: Publish installable preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view preview >/dev/null 2>&1 || gh release create preview --prerelease --target "$GITHUB_SHA" --title 'Reader 测试版' --notes-file tool/release-notes.md
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/preview" -f sha="$GITHUB_SHA" -F force=true
+          gh release edit preview --target "$GITHUB_SHA" --title "Reader 测试版 · Build $GITHUB_RUN_NUMBER" --notes-file tool/release-notes.md
+          gh release upload preview dist/* --clobber

@@ -1,0 +1,27 @@
+name: reader
+description: "Android 与 macOS 本地电子书阅读器。"
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  archive: 4.0.7
+  characters: 1.4.1
+  crypto: 3.0.7
+  dart_mobi: 1.0.2
+  enough_convert: 1.6.0
+  html: 0.15.6
+  path: 1.9.1
+  xml: 6.6.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 6.0.0
+
+flutter:
+  uses-material-design: true
