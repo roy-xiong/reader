@@ -1,7 +1,7 @@
 name: reader
 description: "Android 与 macOS 本地电子书阅读器。"
 publish_to: none
-version: 1.0.2+1
+version: 1.0.3+1
 
 environment:
   sdk: ^3.12.2

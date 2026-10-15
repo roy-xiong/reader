@@ -31,16 +31,16 @@ class MainFlutterWindow: NSWindow {
     let handles = ReaderResizeHandleView()
     handles.translatesAutoresizingMaskIntoConstraints = false
     content.addSubview(handles)
-    let margin = ReaderWindowGeometry.resizeMargin
+    // 缩放热区覆盖窗口边缘，不参与页面布局；正文从标题栏下方铺满剩余区域。
     NSLayoutConstraint.activate([
       titlebar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
       titlebar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
       titlebar.topAnchor.constraint(equalTo: content.topAnchor),
       titlebar.heightAnchor.constraint(equalToConstant: ReaderWindowGeometry.titlebarHeight),
-      controller.view.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: margin),
-      controller.view.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -margin),
+      controller.view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+      controller.view.trailingAnchor.constraint(equalTo: content.trailingAnchor),
       controller.view.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
-      controller.view.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -margin),
+      controller.view.bottomAnchor.constraint(equalTo: content.bottomAnchor),
       handles.leadingAnchor.constraint(equalTo: content.leadingAnchor),
       handles.trailingAnchor.constraint(equalTo: content.trailingAnchor),
       handles.topAnchor.constraint(equalTo: content.topAnchor),
@@ -244,7 +244,7 @@ private class ReaderResizeHandleView: NSView {
     return ReaderWindowGeometry.edges(at: local, size: bounds.size).isEmpty ? nil : self
   }
   override func draw(_ dirtyRect: NSRect) {
-    // 仅在阅读内容外侧的热区绘制极低透明度命中边，内部区域完全不绘制。
+    // 仅覆盖边缘热区，提供透明窗口的命中边；不挤占页面尺寸，内部区域完全不绘制。
     NSColor(calibratedWhite: 0, alpha: 0.01).setFill()
     let border = NSBezierPath(rect: bounds)
     border.append(NSBezierPath(rect: bounds.insetBy(dx: ReaderWindowGeometry.resizeMargin,
