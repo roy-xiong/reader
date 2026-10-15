@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../domain/models.dart';
 import 'app_model.dart';
 import 'core/reader_icon.dart';
@@ -30,6 +31,12 @@ class SettingsScreen extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     title: const Text('主题'),
                     trailing: DropdownButton<String>(
+                      key: const ValueKey('theme-selector'),
+                      borderRadius: BorderRadius.circular(16),
+                      dropdownColor: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHigh,
+                      icon: const ReaderIcon(ReaderGlyph.down, size: 18),
                       value: s.theme,
                       underline: const SizedBox.shrink(),
                       onChanged: (value) {
@@ -52,7 +59,7 @@ class SettingsScreen extends StatelessWidget {
                     '${(s.backgroundOpacity * 100).round()}%',
                     (v) => update(s.copyWith(backgroundOpacity: v)),
                     subtitle: Platform.isMacOS
-                        ? '0% 显示磨砂玻璃背景，正文保持清晰'
+                        ? '0% 阅读背景完全透明，标题栏保留磨砂效果'
                         : '桌面穿透效果在 macOS 版本生效',
                   ),
                   _color(
@@ -75,6 +82,36 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ),
                   _section(context, '字体与排版'),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('正文简繁'),
+                    trailing: DropdownButton<String>(
+                      value: s.scriptMode,
+                      borderRadius: BorderRadius.circular(16),
+                      dropdownColor: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHigh,
+                      icon: const ReaderIcon(ReaderGlyph.down, size: 18),
+                      underline: const SizedBox.shrink(),
+                      items: const [
+                        DropdownMenuItem(value: 'original', child: Text('原文')),
+                        DropdownMenuItem(
+                          value: 'simplified',
+                          child: Text('简体'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'traditional',
+                          child: Text('繁體'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          update(s.copyWith(scriptMode: value));
+                        }
+                      },
+                    ),
+                  ),
+
                   Row(
                     children: [
                       Expanded(child: Text('已导入字体（${model.fonts.length}）')),
@@ -87,6 +124,10 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     key: ValueKey('font-${s.fontId}-${model.fonts.length}'),
+                    borderRadius: BorderRadius.circular(16),
+                    dropdownColor: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHigh,
                     initialValue: model.fonts.any((font) => font.id == s.fontId)
                         ? s.fontId
                         : '',
@@ -122,6 +163,17 @@ class SettingsScreen extends StatelessWidget {
                     48,
                     '${s.fontSize.round()}',
                     (v) => update(s.copyWith(fontSize: v.roundToDouble())),
+                  ),
+                  _slider(
+                    '字体加粗',
+                    s.fontWeight,
+                    100,
+                    900,
+                    '${s.fontWeight.round()}',
+                    (value) => update(
+                      s.copyWith(fontWeight: (value / 100).round() * 100.0),
+                    ),
+                    divisions: 8,
                   ),
                   _slider(
                     '行间距',
@@ -165,6 +217,11 @@ class SettingsScreen extends StatelessWidget {
                             : null,
                         color: s.textColor == null ? null : Color(s.textColor!),
                         fontSize: s.fontSize,
+                        fontWeight:
+                            FontWeight.values[(s.fontWeight / 100)
+                                    .round()
+                                    .clamp(1, 9) -
+                                1],
                         height: s.lineHeight,
                         letterSpacing: s.letterSpacing,
                       ),
@@ -175,6 +232,11 @@ class SettingsScreen extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     title: const Text('翻页特效'),
                     trailing: DropdownButton<String>(
+                      borderRadius: BorderRadius.circular(16),
+                      dropdownColor: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHigh,
+                      icon: const ReaderIcon(ReaderGlyph.down, size: 18),
                       value: s.pageEffect,
                       underline: const SizedBox.shrink(),
                       onChanged: (v) {
@@ -192,7 +254,7 @@ class SettingsScreen extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     title: Text('阅读操作'),
                     subtitle: Text(
-                      '左右滑动或点击两侧翻页；点击中间显示工具。\n桌面端支持方向键、空格和 Page Up / Page Down。\n⌘, 设置 · ⌘F 搜索 · ⌘D 书签 · ⌘B 书架',
+                      '左右滑动或点击两侧翻页；点击中间显示工具。\n桌面端支持方向键、空格和 Page Up / Page Down。\n⌘, 设置 · ⌘F 搜索 · ⌘D 书签 · ⌘B 书架\nmacOS：Esc 最小化 · ⌘+ / ⌘- 调整字号',
                     ),
                   ),
                   _section(context, '密码锁'),
@@ -221,7 +283,7 @@ class SettingsScreen extends StatelessWidget {
                   _section(context, '关于 Reader'),
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('Reader 1.0.1'),
+                    title: Text('阅读 1.0.2'),
                     subtitle: Text(
                       '本地书架 · 离线阅读\n支持 TXT、EPUB、MOBI、AZW / AZW3、HTML 的可重排文字。\n受 DRM 保护、纯图片和扫描版电子书暂不支持。',
                     ),
@@ -232,8 +294,8 @@ class SettingsScreen extends StatelessWidget {
                     trailing: const ReaderIcon(ReaderGlyph.chevronRight),
                     onTap: () => showLicensePage(
                       context: context,
-                      applicationName: 'Reader',
-                      applicationVersion: '1.0.1',
+                      applicationName: '阅读',
+                      applicationVersion: '1.0.2',
                       applicationLegalese: 'GPL-3.0-or-later',
                     ),
                   ),
@@ -264,6 +326,7 @@ class SettingsScreen extends StatelessWidget {
     String label,
     ValueChanged<double> change, {
     String? subtitle,
+    int? divisions,
   }) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 10),
     child: Column(
@@ -280,6 +343,7 @@ class SettingsScreen extends StatelessWidget {
           min: min,
           max: max,
           label: label,
+          divisions: divisions,
           onChanged: change,
         ),
         if (subtitle != null)
@@ -405,7 +469,11 @@ class _ColorDialogState extends State<_ColorDialog> {
           const SizedBox(height: 24),
           TextField(
             controller: field,
-            maxLength: 7,
+            key: const ValueKey('hex-color-input'),
+            maxLength: 6,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[a-fA-F0-9]')),
+            ],
             decoration: InputDecoration(
               labelText: '十六进制颜色',
               prefixText: '#',

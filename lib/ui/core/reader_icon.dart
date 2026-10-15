@@ -37,12 +37,17 @@ class ReaderIcon extends StatelessWidget {
     final theme = IconTheme.of(context);
     final tint =
         color ?? theme.color ?? Theme.of(context).colorScheme.onSurface;
-    return SizedBox.square(
-      dimension: size ?? theme.size ?? 24,
-      child: CustomPaint(
-        painter: _ReaderIconPainter(
-          glyph,
-          tint.withValues(alpha: tint.a * (theme.opacity ?? 1)),
+    // Center 放松输入框等父控件的最小约束，防止 18px 图标被强制绘制成 48px。
+    return Center(
+      widthFactor: 1,
+      heightFactor: 1,
+      child: SizedBox.square(
+        dimension: size ?? theme.size ?? 24,
+        child: CustomPaint(
+          painter: _ReaderIconPainter(
+            glyph,
+            tint.withValues(alpha: tint.a * (theme.opacity ?? 1)),
+          ),
         ),
       ),
     );

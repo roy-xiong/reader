@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:meta/meta.dart';
 
 /// 可持久化的阅读偏好。透明度只应用到阅读背景，不改变正文的不透明度。
 @immutable
@@ -15,13 +15,16 @@ class ReaderSettings {
     this.fontId,
     this.fontName,
     this.pageEffect = 'cover',
+    this.scriptMode = 'original',
+    this.fontWeight = 400,
   });
   final String theme;
   final double fontSize, lineHeight, letterSpacing, paragraphSpacing;
   final double backgroundOpacity;
   final int? textColor, backgroundColor;
   final String? fontId, fontName;
-  final String pageEffect;
+  final String pageEffect, scriptMode;
+  final double fontWeight;
 
   ReaderSettings copyWith({
     String? theme,
@@ -35,6 +38,8 @@ class ReaderSettings {
     String? fontId,
     String? fontName,
     String? pageEffect,
+    String? scriptMode,
+    double? fontWeight,
     bool resetColors = false,
     bool resetFont = false,
   }) => ReaderSettings(
@@ -51,6 +56,8 @@ class ReaderSettings {
     fontId: resetFont ? null : fontId ?? this.fontId,
     fontName: resetFont ? null : fontName ?? this.fontName,
     pageEffect: pageEffect ?? this.pageEffect,
+    scriptMode: scriptMode ?? this.scriptMode,
+    fontWeight: fontWeight ?? this.fontWeight,
   );
 
   Map<String, dynamic> toJson() => {
@@ -65,6 +72,8 @@ class ReaderSettings {
     'fontId': fontId,
     'fontName': fontName,
     'pageEffect': pageEffect,
+    'scriptMode': scriptMode,
+    'fontWeight': fontWeight,
   };
 
   factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
@@ -81,6 +90,11 @@ class ReaderSettings {
     fontId: j['fontId'] as String?,
     fontName: j['fontName'] as String?,
     pageEffect: j['pageEffect'] == 'none' ? 'none' : 'cover',
+    scriptMode:
+        ['original', 'simplified', 'traditional'].contains(j['scriptMode'])
+        ? j['scriptMode'] as String
+        : 'original',
+    fontWeight: _number(j['fontWeight'], 400, 100, 900),
   );
 }
 
@@ -159,6 +173,7 @@ class BookRecord {
   final List<BookMark> bookmarks;
   double get progress => length == 0 ? 0 : (offset / length).clamp(0, 1);
   BookRecord copyWith({
+    int? length,
     int? offset,
     int? lastOpened,
     List<BookMark>? bookmarks,
@@ -167,7 +182,7 @@ class BookRecord {
     title: title,
     author: author,
     format: format,
-    length: length,
+    length: length ?? this.length,
     importedAt: importedAt,
     offset: offset ?? this.offset,
     lastOpened: lastOpened ?? this.lastOpened,
@@ -209,14 +224,34 @@ class BookRecord {
 
 @immutable
 class Chapter {
-  const Chapter({required this.title, required this.start, required this.end});
+  const Chapter({
+    required this.title,
+    required this.start,
+    required this.end,
+    this.isContinuation = false,
+    this.headingEnd,
+  });
   final String title;
   final int start, end;
-  Map<String, dynamic> toJson() => {'title': title, 'start': start, 'end': end};
+  final bool isContinuation;
+
+  /// 标题在正文中的结束位置；续排片段和不存在正文标题的章节为空。
+  final int? headingEnd;
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'start': start,
+    'end': end,
+    'isContinuation': isContinuation,
+    'headingEnd': headingEnd,
+  };
   factory Chapter.fromJson(Map<String, dynamic> j) => Chapter(
     title: j['title'] as String,
     start: j['start'] as int,
     end: j['end'] as int,
+    isContinuation:
+        j['isContinuation'] as bool? ??
+        RegExp(r'（续 \d+）$').hasMatch(j['title'] as String),
+    headingEnd: j['headingEnd'] as int?,
   );
 }
 
@@ -228,9 +263,14 @@ class BookDocument {
     required this.author,
     required this.text,
     required this.chapters,
+    this.parseVersion = currentParseVersion,
   });
+  static const currentParseVersion = 2;
+  final int parseVersion;
   final String title, author, text;
   final List<Chapter> chapters;
+  List<Chapter> get outline =>
+      List.unmodifiable(chapters.where((chapter) => !chapter.isContinuation));
   int chapterAt(int offset) {
     var low = 0, high = chapters.length - 1;
     while (low < high) {
@@ -247,6 +287,7 @@ class BookDocument {
   Map<String, dynamic> toJson() => {
     'title': title,
     'author': author,
+    'parseVersion': parseVersion,
     'text': text,
     'chapters': chapters.map((c) => c.toJson()).toList(),
   };
@@ -275,6 +316,7 @@ class BookDocument {
       author: j['author'] as String? ?? '',
       text: text,
       chapters: List.unmodifiable(chapters),
+      parseVersion: j['parseVersion'] as int? ?? 1,
     );
   }
 }

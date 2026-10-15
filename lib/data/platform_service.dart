@@ -37,6 +37,13 @@ class PlatformService {
     }
   }
 
+  /// 阅读页响应 Escape 时由原生窗口执行最小化。
+  Future<void> minimize() async {
+    if (Platform.isMacOS) {
+      await channel.invokeMethod<void>('minimize');
+    }
+  }
+
   /// 原生磨砂标题栏跟随应用主题。其他平台忽略窗口外观通道。
   Future<void> appearance(String theme) async {
     if (!Platform.isMacOS) {

@@ -111,6 +111,36 @@ class LibraryRepository {
     );
   }
 
+  /// 缓存仍保留旧格式时从应用内原始文件重新解析，不读取外部未授权路径。
+  Future<BookDocument?> parseOriginal(BookRecord book) async {
+    final extension = book.format.toLowerCase();
+    if (!BookParser.extensions.contains(extension)) {
+      return null;
+    }
+    final source = File(
+      p.join(p.dirname(bookPath(book.id)), 'original.$extension'),
+    );
+    if (!await source.exists()) {
+      return null;
+    }
+    final parsed = await BookParser().parse(source.path);
+    return BookDocument(
+      title: book.title,
+      author: parsed.author.isEmpty ? book.author : parsed.author,
+      text: parsed.text,
+      chapters: parsed.chapters,
+    );
+  }
+
+  Future<void> replaceDocument(String id, BookDocument document) async {
+    final path = bookPath(id), json = document.toJson();
+    await Isolate.run(() async {
+      final temporary = File('$path.upgrade');
+      await temporary.writeAsString(jsonEncode(json), flush: true);
+      await temporary.rename(path);
+    });
+  }
+
   Future<void> deleteFiles(String id) async {
     final directory = Directory(p.dirname(bookPath(id)));
     if (await directory.exists()) {

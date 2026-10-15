@@ -1,11 +1,14 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../domain/models.dart';
 import '../domain/pagination.dart';
+import '../domain/chinese_conversion.dart';
+import '../data/chinese_script_service.dart';
+import 'contents_dialog.dart';
 import 'app_model.dart';
 import 'core/reader_icon.dart';
 
@@ -25,12 +28,24 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class ReaderScreenState extends State<ReaderScreen> {
-  BookDocument? document;
+  BookDocument? document, sourceDocument;
+  final scriptService = ChineseScriptService();
+  TextOffsetMap offsets = const TextOffsetMap();
+  String requestedScript = '';
+  int conversionGeneration = 0;
+  int _sourceOffset(int display) => offsets.toSource(display);
+  void _recordProgress(int display) =>
+      model.updateProgress(book.id, _sourceOffset(display));
   String? error, layoutKey;
   List<ReadingPage> pages = [];
   int pageIndex = 0, anchor = 0, generation = 0;
   bool loading = true, arranging = false, controls = false;
   double? seeking;
+  BookPageIndex? bookPageIndex;
+  String? indexKey;
+  int indexGeneration = 0;
+  Timer? indexDebounce;
+  bool indexFailed = false;
   final pager = GlobalKey<_CoverPagerState>();
   bool navigationBusy = false;
   Future<void> requestTurn(bool forward) async {
@@ -47,21 +62,25 @@ class ReaderScreenState extends State<ReaderScreen> {
   void initState() {
     super.initState();
     anchor = widget.book.offset;
+    model.addListener(_settingsChanged);
     unawaited(_load());
+  }
+
+  void _settingsChanged() {
+    if (sourceDocument != null &&
+        requestedScript != model.settings.scriptMode) {
+      unawaited(_applyScript());
+    }
   }
 
   Future<void> _load() async {
     try {
-      final content = await model.repository.open(widget.book);
+      final content = await model.openBook(widget.book);
       if (!mounted) {
         return;
       }
-      setState(() {
-        document = content;
-        anchor = anchor.clamp(0, content.text.length - 1);
-        loading = false;
-      });
-      model.updateProgress(book.id, anchor);
+      sourceDocument = content;
+      await _applyScript(sourceOffset: book.offset);
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -72,9 +91,62 @@ class ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
+  /// 显示文本始终由原文派生，进度和书签仍保存为原文坐标。
+  Future<void> _applyScript({int? sourceOffset}) async {
+    final source = sourceDocument;
+    if (source == null || !mounted) {
+      return;
+    }
+    final location = sourceOffset ?? _sourceOffset(current?.start ?? anchor);
+    requestedScript = model.settings.scriptMode;
+    final ticket = ++conversionGeneration;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final rendered = await scriptService.convert(source, requestedScript);
+      if (!mounted || ticket != conversionGeneration) {
+        return;
+      }
+      generation++;
+      indexGeneration++;
+      indexDebounce?.cancel();
+      setState(() {
+        document = rendered.document;
+        offsets = rendered.offsets;
+        anchor = offsets
+            .toDisplay(location)
+            .clamp(0, rendered.document.text.length - 1);
+        pages = [];
+        pageIndex = 0;
+        loading = false;
+        arranging = false;
+        layoutKey = null;
+        indexKey = null;
+        bookPageIndex = null;
+      });
+      _recordProgress(anchor);
+    } on ScriptConversionCancelled {
+      /* 后续转换或页面销毁已接管。 */
+    } catch (_) {
+      if (mounted && ticket == conversionGeneration) {
+        setState(() {
+          loading = false;
+          error = '正文转换失败，请切回原文后重试';
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
+    model.removeListener(_settingsChanged);
+    conversionGeneration++;
+    scriptService.cancel();
     generation++;
+    indexGeneration++;
+    indexDebounce?.cancel();
     super.dispose();
   }
 
@@ -90,8 +162,12 @@ class ReaderScreenState extends State<ReaderScreen> {
       return;
     }
     final chapterIndex = doc.chapterAt(anchor);
-    final key =
-        '$width/$height/$chapterIndex/${jsonEncode(model.settings.toJson())}/${model.loadedFontId}/${scaler.scale(20)}';
+    final s = model.settings;
+    final metricsKey =
+        '$width/$height/${s.fontSize}/${s.lineHeight}/${s.letterSpacing}/'
+        '${s.paragraphSpacing}/${s.fontId}/${model.loadedFontId}/${s.fontWeight}/$requestedScript/${scaler.scale(s.fontSize)}';
+    _ensureBookIndex(metricsKey, width, height, style, scaler);
+    final key = '$metricsKey/$chapterIndex';
     if (key == layoutKey) {
       return;
     }
@@ -136,6 +212,86 @@ class ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
+  /// 全书计数与当前章节翻页独立；连续缩放时只计算最后一次稳定的布局。
+  void _ensureBookIndex(
+    String key,
+    double width,
+    double height,
+    TextStyle style,
+    TextScaler scaler,
+  ) {
+    if (indexKey == key) {
+      return;
+    }
+    indexKey = key;
+    final ticket = ++indexGeneration;
+    indexDebounce?.cancel();
+    bookPageIndex = null;
+    indexFailed = false;
+    final doc = document;
+    if (doc == null) {
+      return;
+    }
+    final spacing = model.settings.paragraphSpacing;
+    indexDebounce = Timer(const Duration(milliseconds: 180), () async {
+      try {
+        final index = await BookPageIndex.build(
+          document: doc,
+          width: width,
+          height: height,
+          style: style,
+          paragraphSpacing: spacing,
+          scaler: scaler,
+          cancelled: () => !mounted || ticket != indexGeneration,
+        );
+        if (mounted && ticket == indexGeneration && index != null) {
+          setState(() => bookPageIndex = index);
+        }
+      } catch (_) {
+        if (mounted && ticket == indexGeneration) {
+          setState(() => indexFailed = true);
+        }
+      }
+    });
+  }
+
+  /// 快捷键和原生菜单均只作用于当前位于最上层的阅读页。
+  void adjustFontSize(int delta) {
+    if (model.locked || ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    final s = model.settings;
+    final next = (s.fontSize + delta).clamp(12.0, 48.0);
+    if (next != s.fontSize) {
+      model.updateSettings(s.copyWith(fontSize: next));
+    }
+  }
+
+  Future<void> escapeReading() async {
+    if (model.locked || ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      await model.platform.minimize();
+    } else if (mounted) {
+      setState(() => controls = !controls);
+    }
+  }
+
+  String _progressLabel() {
+    final percent =
+        ((current?.end == document?.text.length
+                    ? 1.0
+                    : anchor / max(1, document?.text.length ?? 1)) *
+                100)
+            .toStringAsFixed(1);
+    final index = bookPageIndex;
+    final position = index == null
+        ? (indexFailed ? '页码暂不可用' : '页码计算中')
+        : '${index.pageNumberAt(current?.start ?? anchor)}/${index.totalPages}';
+    return '$percent%   ·   $position';
+  }
+
   Future<bool> _turn(bool forward) async {
     final doc = document;
     final page = current;
@@ -170,7 +326,7 @@ class ReaderScreenState extends State<ReaderScreen> {
           return false;
         }
       }
-      model.updateProgress(book.id, anchor);
+      _recordProgress(anchor);
       return true;
     } finally {
       navigationBusy = false;
@@ -208,7 +364,7 @@ class ReaderScreenState extends State<ReaderScreen> {
         }
       }
     }
-    model.updateProgress(book.id, target);
+    _recordProgress(target);
   }
 
   Future<void> toggleBookmark() async {
@@ -220,8 +376,16 @@ class ReaderScreenState extends State<ReaderScreen> {
     try {
       await model.toggleBookmark(
         book.id,
-        page.start,
-        doc.text.substring(page.start, min(page.end, page.start + 80)).trim(),
+        _sourceOffset(page.start),
+        (sourceDocument ?? doc).text
+            .substring(
+              _sourceOffset(page.start),
+              min(
+                (sourceDocument ?? doc).text.length,
+                _sourceOffset(page.start) + 80,
+              ),
+            )
+            .trim(),
       );
       if (mounted) {
         setState(() {});
@@ -250,86 +414,86 @@ class ReaderScreenState extends State<ReaderScreen> {
     if (doc == null || model.locked) {
       return;
     }
-    final offset = await showDialog<int>(
-      context: context,
-      builder: (context) => Dialog(
-        child: SizedBox(
-          width: 620,
-          height: min(620, MediaQuery.sizeOf(context).height * .8),
-          child: Column(
-            children: [
-              ListTile(
-                title: Text(bookmarks ? '书签' : '目录'),
-                trailing: IconButton(
-                  tooltip: '关闭',
-                  onPressed: () => Navigator.pop(context),
-                  icon: const ReaderIcon(ReaderGlyph.close),
+    final openingOffsets = offsets;
+    final int? selected;
+    if (!bookmarks) {
+      selected = await showDialog<int>(
+        context: context,
+        builder: (_) => ChapterContentsDialog(
+          document: doc,
+          offset: current?.start ?? anchor,
+        ),
+      );
+    } else {
+      selected = await showDialog<int>(
+        context: context,
+        builder: (context) => Dialog(
+          child: SizedBox(
+            width: 620,
+            height: min(620, MediaQuery.sizeOf(context).height * .8),
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text('书签'),
+                  trailing: IconButton(
+                    tooltip: '关闭',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const ReaderIcon(ReaderGlyph.close),
+                  ),
                 ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: ListenableBuilder(
-                  listenable: model,
-                  builder: (context, _) {
-                    final marks = book.bookmarks;
-                    if (bookmarks && marks.isEmpty) {
-                      return const Center(
-                        child: Text(
-                          '还没有书签\n可用 ⌘D 或阅读工具栏添加',
-                          textAlign: TextAlign.center,
-                        ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListenableBuilder(
+                    listenable: model,
+                    builder: (context, _) {
+                      final marks = book.bookmarks;
+                      if (marks.isEmpty) {
+                        return const Center(child: Text('还没有书签'));
+                      }
+                      return ListView.builder(
+                        itemCount: marks.length,
+                        itemBuilder: (context, index) {
+                          final mark = marks[index],
+                              display = openingOffsets.toDisplay(mark.offset);
+                          return ListTile(
+                            title: Text(
+                              mark.quote,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${(display / doc.text.length * 100).toStringAsFixed(1)}%',
+                            ),
+                            onTap: () => Navigator.pop(context, display),
+                            trailing: IconButton(
+                              tooltip: '删除书签',
+                              icon: const ReaderIcon(
+                                ReaderGlyph.removeBookmark,
+                              ),
+                              onPressed: () async {
+                                try {
+                                  await model.toggleBookmark(
+                                    book.id,
+                                    mark.offset,
+                                    '',
+                                  );
+                                } catch (_) {}
+                              },
+                            ),
+                          );
+                        },
                       );
-                    }
-                    return ListView.builder(
-                      itemCount: bookmarks ? marks.length : doc.chapters.length,
-                      itemBuilder: (context, index) {
-                        final offset = bookmarks
-                            ? marks[index].offset
-                            : doc.chapters[index].start;
-                        return ListTile(
-                          title: Text(
-                            bookmarks
-                                ? marks[index].quote
-                                : doc.chapters[index].title,
-                            maxLines: bookmarks ? 3 : 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            '${(offset / doc.text.length * 100).toStringAsFixed(1)}%',
-                          ),
-                          selected:
-                              !bookmarks && index == doc.chapterAt(anchor),
-                          onTap: () => Navigator.pop(context, offset),
-                          trailing: bookmarks
-                              ? IconButton(
-                                  tooltip: '删除书签',
-                                  icon: const ReaderIcon(
-                                    ReaderGlyph.removeBookmark,
-                                  ),
-                                  onPressed: () async {
-                                    try {
-                                      await model.toggleBookmark(
-                                        book.id,
-                                        offset,
-                                        '',
-                                      );
-                                    } catch (_) {}
-                                  },
-                                )
-                              : null,
-                        );
-                      },
-                    );
-                  },
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    );
-    if (offset != null && mounted) {
-      await _jump(offset);
+      );
+    }
+    if (selected != null && mounted) {
+      await _jump(offsets.toDisplay(openingOffsets.toSource(selected)));
     }
   }
 
@@ -343,13 +507,15 @@ class ReaderScreenState extends State<ReaderScreen> {
           ? (dark ? const Color(0xff171c1b) : const Color(0xfff7f5ef))
           : Color(s.backgroundColor!);
       final foreground = s.textColor == null
-          ? (dark ? const Color(0xffd4d9d5) : const Color(0xff303b35))
+          ? (dark ? const Color(0xff999999) : const Color(0xff303b35))
           : Color(s.textColor!);
       final style = TextStyle(
         fontFamily: s.fontId != null && s.fontId == model.loadedFontId
             ? 'user_${s.fontId}'
             : null,
         fontSize: s.fontSize,
+        fontWeight:
+            FontWeight.values[(s.fontWeight / 100).round().clamp(1, 9) - 1],
         height: s.lineHeight,
         letterSpacing: s.letterSpacing,
         color: foreground,
@@ -373,7 +539,27 @@ class ReaderScreenState extends State<ReaderScreen> {
             const SingleActivator(LogicalKeyboardKey.pageUp): () =>
                 unawaited(requestTurn(false)),
             const SingleActivator(LogicalKeyboardKey.escape): () =>
-                setState(() => controls = !controls),
+                unawaited(escapeReading()),
+            const SingleActivator(LogicalKeyboardKey.equal, meta: true): () =>
+                adjustFontSize(1),
+            const SingleActivator(
+              LogicalKeyboardKey.equal,
+              meta: true,
+              shift: true,
+            ): () =>
+                adjustFontSize(1),
+            const SingleActivator(
+              LogicalKeyboardKey.numpadAdd,
+              meta: true,
+            ): () =>
+                adjustFontSize(1),
+            const SingleActivator(LogicalKeyboardKey.minus, meta: true): () =>
+                adjustFontSize(-1),
+            const SingleActivator(
+              LogicalKeyboardKey.numpadSubtract,
+              meta: true,
+            ): () =>
+                adjustFontSize(-1),
             const SingleActivator(LogicalKeyboardKey.keyF, control: true): () =>
                 unawaited(showSearch()),
             const SingleActivator(LogicalKeyboardKey.keyD, control: true): () =>
@@ -474,8 +660,8 @@ class ReaderScreenState extends State<ReaderScreen> {
                             height: 34,
                             child: Center(
                               child: Text(
-                                '${((current?.end == document?.text.length ? 1.0 : anchor / max(1, document?.text.length ?? 1)) * 100).toStringAsFixed(1)}%'
-                                '${pages.isEmpty ? '' : '   ·   ${pageIndex + 1}/${pages.length}'}',
+                                _progressLabel(),
+                                key: const ValueKey('reading-progress'),
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: foreground.withValues(alpha: .65),
@@ -519,7 +705,11 @@ class ReaderScreenState extends State<ReaderScreen> {
                                 onPressed: toggleBookmark,
                                 icon: ReaderIcon(
                                   book.bookmarks.any(
-                                        (m) => m.offset == current?.start,
+                                        (m) =>
+                                            m.offset ==
+                                            _sourceOffset(
+                                              current?.start ?? anchor,
+                                            ),
                                       )
                                       ? ReaderGlyph.bookmark
                                       : ReaderGlyph.bookmarkOutline,
@@ -664,12 +854,24 @@ class _TextPagePainter extends CustomPainter {
     // 透明背景不在单页上重复叠加，交由整个阅读窗口统一绘制。
     for (final fragment in page.fragments) {
       final painter = TextPainter(
-        text: TextSpan(text: fragment.text, style: style),
+        text: TextSpan(
+          text: fragment.text,
+          style: Pagination.fragmentStyle(style, fragment.isHeading),
+        ),
         textDirection: TextDirection.ltr,
         textScaler: scaler,
       )..layout(maxWidth: width);
       painter.paint(canvas, Offset(0, fragment.y));
       painter.dispose();
+      if (fragment.separatorAfter) {
+        canvas.drawLine(
+          Offset(0, fragment.y + fragment.height + 8),
+          Offset(width, fragment.y + fragment.height + 8),
+          Paint()
+            ..color = (style.color ?? Colors.grey).withValues(alpha: .35)
+            ..strokeWidth = .7,
+        );
+      }
     }
   }
 

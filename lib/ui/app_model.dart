@@ -8,6 +8,7 @@ import '../data/library_repository.dart';
 import '../data/font_service.dart';
 import '../data/platform_service.dart';
 import '../domain/models.dart';
+import '../domain/book_relocation.dart';
 
 /// 应用状态的唯一写入口。界面仅观察状态，持久化操作始终经过仓库串行队列。
 class AppModel extends ChangeNotifier {
@@ -186,6 +187,54 @@ class AppModel extends ChangeNotifier {
     }).toList();
     changed();
     await flush();
+  }
+
+  final Map<String, Future<BookDocument>> _opening = {};
+
+  Future<BookDocument> openBook(BookRecord requested) => _opening.putIfAbsent(
+    requested.id,
+    () => _openBook(requested).whenComplete(() {
+      _opening.remove(requested.id);
+    }),
+  );
+
+  /// 升级目录缓存并迁移书架定位，升级失败时继续保留原缓存供阅读。
+  Future<BookDocument> _openBook(BookRecord requested) async {
+    final stored = await repository.open(requested);
+    if (stored.parseVersion >= BookDocument.currentParseVersion) {
+      return stored;
+    }
+    final previousBook = findBook(requested.id) ?? requested;
+    try {
+      final updated = await repository.parseOriginal(previousBook);
+      if (updated == null) {
+        return stored;
+      }
+      final relocated = await BookRelocation.inBackground(
+        previousBook,
+        stored,
+        updated,
+      );
+      await repository.replaceDocument(previousBook.id, updated);
+      _books = _books
+          .map((book) => book.id == relocated.id ? relocated : book)
+          .toList();
+      try {
+        await flush();
+      } catch (_) {
+        _books = _books
+            .map((book) => book.id == previousBook.id ? previousBook : book)
+            .toList();
+        await repository.replaceDocument(previousBook.id, stored);
+        rethrow;
+      }
+      changed();
+      return updated;
+    } catch (_) {
+      error = '目录更新未完成，已保留原缓存';
+      changed();
+      return stored;
+    }
   }
 
   Future<void> deleteBook(String id) async {

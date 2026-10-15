@@ -14,6 +14,11 @@ import 'ui/shelf_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks([
+      'OpenCC dictionaries',
+    ], await rootBundle.loadString('assets/opencc/LICENSE'));
+  });
   final platform = PlatformService();
   try {
     final path = await platform.supportPath();
@@ -109,6 +114,10 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
         reader?.currentState?.showSearch();
       case 'bookmark':
         await reader?.currentState?.toggleBookmark();
+      case 'increaseFont':
+        reader?.currentState?.adjustFontSize(1);
+      case 'decreaseFont':
+        reader?.currentState?.adjustFontSize(-1);
       case 'lockApp':
         model.lock();
     }
@@ -173,7 +182,7 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: model,
     builder: (context, _) => MaterialApp(
-      title: 'Reader',
+      title: '阅读',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigator,
       scaffoldMessengerKey: messenger,
@@ -227,21 +236,36 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
 
 ThemeData _theme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
-  final colors = ColorScheme.fromSeed(
-    seedColor: const Color(0xff4f7568),
-    brightness: brightness,
-    surface: dark ? const Color(0xff171c1b) : const Color(0xfff7f5ef),
+  final colors =
+      ColorScheme.fromSeed(
+        seedColor: const Color(0xff4f7568),
+        brightness: brightness,
+        surface: dark ? const Color(0xff171c1b) : const Color(0xfff7f5ef),
+      ).copyWith(
+        onSurface: dark ? const Color(0xff999999) : null,
+        onSurfaceVariant: dark ? const Color(0xff999999) : null,
+      );
+  final popupShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(16),
   );
   return ThemeData(
     useMaterial3: true,
     colorScheme: colors,
-    scaffoldBackgroundColor: defaultTargetPlatform == TargetPlatform.macOS
-        ? colors.surface.withValues(alpha: .86)
-        : colors.surface,
+    scaffoldBackgroundColor: colors.surface,
+    popupMenuTheme: PopupMenuThemeData(
+      shape: popupShape,
+      color: colors.surfaceContainerHigh,
+      elevation: 6,
+      menuPadding: const EdgeInsets.symmetric(vertical: 8),
+    ),
+    menuTheme: MenuThemeData(
+      style: MenuStyle(shape: WidgetStatePropertyAll(popupShape)),
+    ),
+    dropdownMenuTheme: DropdownMenuThemeData(
+      menuStyle: MenuStyle(shape: WidgetStatePropertyAll(popupShape)),
+    ),
     appBarTheme: AppBarTheme(
-      backgroundColor: defaultTargetPlatform == TargetPlatform.macOS
-          ? colors.surface.withValues(alpha: .86)
-          : colors.surface,
+      backgroundColor: colors.surface,
       scrolledUnderElevation: 0,
     ),
     inputDecorationTheme: InputDecorationTheme(

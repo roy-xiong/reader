@@ -83,9 +83,11 @@ class BookParser {
     }
     if (['html', 'htm'].contains(ext)) {
       final doc = html.parse(decodeText(bytes));
-      return _assemble(doc.querySelector('title')?.text ?? fallback, '', [
-        (fallback, _htmlText(doc.body)),
-      ]);
+      return _assemble(
+        doc.querySelector('title')?.text ?? fallback,
+        '',
+        _htmlSections(doc.body, fallback),
+      );
     }
     if (ext != 'txt') {
       throw const FormatException('不支持此文件格式');
@@ -213,14 +215,7 @@ class BookParser {
         throw const FormatException('EPUB 内部路径无效');
       }
       final doc = html.parse(read(resolved));
-      final text = _htmlText(doc.body);
-      final heading = doc.querySelector('h1,h2,h3')?.text.trim();
-      if (text.trim().isNotEmpty) {
-        sections.add((
-          heading?.isNotEmpty == true ? heading! : '第 ${sections.length + 1} 节',
-          text,
-        ));
-      }
+      sections.addAll(_htmlSections(doc.body, '第 ${sections.length + 1} 节'));
     }
     return _assemble(
       title?.isNotEmpty == true ? title! : fallback,
@@ -281,7 +276,7 @@ class BookParser {
             )
             .body,
       );
-      return _assemble(fallback, '', [(fallback, text)]);
+      return _assemble(fallback, '', _textSections(text, fallback));
     }
     final raw = data.parseOpt(false, false, false);
     final sections = <(String, String)>[];
@@ -296,14 +291,7 @@ class BookParser {
             encoding: data.mobiHeader?.encoding?.value == 1252 ? '1252' : null,
           ),
         );
-        final text = _htmlText(doc.body);
-        if (text.trim().isNotEmpty) {
-          sections.add((
-            doc.querySelector('h1,h2,h3')?.text.trim() ??
-                '第 ${sections.length + 1} 节',
-            text,
-          ));
-        }
+        sections.addAll(_htmlSections(doc.body, '第 ${sections.length + 1} 节'));
       }
       part = part.next;
     }
@@ -438,12 +426,11 @@ class BookParser {
       encoding: encoding == 1252 ? '1252' : null,
     );
     final document = html.parse(text);
-    return _assemble(title.isEmpty ? fallback : title, '', [
-      (
-        document.querySelector('h1,h2,h3')?.text.trim() ?? '正文',
-        _htmlText(document.body),
-      ),
-    ]);
+    return _assemble(
+      title.isEmpty ? fallback : title,
+      '',
+      _htmlSections(document.body, '正文'),
+    );
   }
 
   /// 保留块级顺序和段落边界，跳过脚本样式；重排正文由用户统一控制样式。
@@ -476,7 +463,7 @@ class BookParser {
       if (node is! dom.Element) {
         return;
       }
-      final tag = node.localName;
+      final tag = node.localName ?? '';
       if (['script', 'style', 'nav', 'noscript'].contains(tag)) {
         return;
       }
@@ -504,6 +491,131 @@ class BookParser {
 
     walk(body);
     return _normalize(out.toString());
+  }
+
+  /// 按实际标题元素分章，目录导航不混入正文；不再把固定字数切片当成目录章节。
+  static List<(String, String)> _htmlSections(
+    dom.Element? body,
+    String fallback,
+  ) {
+    if (body == null) {
+      return [];
+    }
+    final sections = <(String, String)>[];
+    var title = fallback, out = StringBuffer(), skipToc = false;
+    const blocks = {
+      'p',
+      'div',
+      'section',
+      'article',
+      'li',
+      'blockquote',
+      'tr',
+      'pre',
+    };
+    void finish() {
+      final text = _normalize(out.toString());
+      if (text.isNotEmpty) {
+        sections.add((title, text));
+      }
+      out = StringBuffer();
+    }
+
+    void walk(dom.Node node) {
+      if (node is dom.Text) {
+        if (!skipToc) {
+          out.write(node.text.replaceAll(RegExp(r'\s+'), ' '));
+        }
+        return;
+      }
+      if (node is! dom.Element) {
+        return;
+      }
+      final tag = node.localName ?? '';
+      if (['script', 'style', 'nav', 'noscript'].contains(tag)) {
+        return;
+      }
+      final heading =
+          RegExp(r'^h[1-6]$').hasMatch(tag) ||
+          (['p', 'div'].contains(tag) &&
+              node.children.every(
+                (child) => [
+                  'a',
+                  'span',
+                  'b',
+                  'strong',
+                  'i',
+                  'em',
+                ].contains(child.localName),
+              ) &&
+              RegExp(
+                r'^第[零〇一二三四五六七八九十百千万两\d]+[章节卷部回][^\n]{0,60}$',
+              ).hasMatch(node.text.trim()));
+      if (heading && node.text.trim().isNotEmpty) {
+        finish();
+        title = node.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+        skipToc = RegExp(
+          r'^(目录|目錄|contents|table of contents)$',
+          caseSensitive: false,
+        ).hasMatch(title);
+        if (!skipToc) {
+          out.write('$title\n\n');
+        }
+        return;
+      }
+      if (skipToc) {
+        for (final child in node.nodes) {
+          walk(child);
+        }
+        return;
+      }
+      if (tag == 'br') {
+        out.write('\n\n');
+        return;
+      }
+      if (tag == 'img') {
+        final alt = node.attributes['alt'];
+        if (alt?.trim().isNotEmpty == true) {
+          out.write('\n\n[${alt!.trim()}]\n\n');
+        }
+        return;
+      }
+      if (blocks.contains(tag)) {
+        out.write('\n\n');
+      }
+      for (final child in node.nodes) {
+        walk(child);
+      }
+      if (blocks.contains(tag)) {
+        out.write('\n\n');
+      }
+    }
+
+    walk(body);
+    finish();
+    if (sections.length <= 1 && sections.isNotEmpty) {
+      return _textSections(sections.first.$2, sections.first.$1);
+    }
+    return sections;
+  }
+
+  static List<(String, String)> _textSections(String text, String fallback) {
+    final result = <(String, String)>[];
+    final headings = RegExp(
+      r'^(第[零〇一二三四五六七八九十百千万两\d]+[章节卷部回][^\n]{0,60}|(?:chapter|part)\s+[\divxlc]+[^\n]{0,60})$',
+      multiLine: true,
+      caseSensitive: false,
+    ).allMatches(text);
+    var start = 0, title = fallback;
+    for (final match in headings) {
+      if (match.start > start) {
+        result.add((title, text.substring(start, match.start)));
+      }
+      start = match.start;
+      title = match.group(0) ?? title;
+    }
+    result.add((title, text.substring(start)));
+    return result;
   }
 
   static String _normalize(String input) => input
@@ -545,11 +657,21 @@ class BookParser {
         final start = out.length;
         out.write(normalized.substring(position, end));
         out.write('\n\n');
+        final continuation = number++ > 0;
+        final firstLine = normalized
+            .substring(position, end)
+            .split('\n')
+            .first
+            .trim();
         chapters.add(
           Chapter(
-            title: number++ == 0 ? section.$1 : '${section.$1}（续 $number）',
+            title: section.$1,
             start: start,
             end: out.length,
+            isContinuation: continuation,
+            headingEnd: !continuation && firstLine == section.$1.trim()
+                ? start + firstLine.length
+                : null,
           ),
         );
         position = end;

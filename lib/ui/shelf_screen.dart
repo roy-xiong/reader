@@ -52,7 +52,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
         child: Scaffold(
           appBar: AppBar(
             title: const Text(
-              'Reader',
+              '阅读',
               style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 1),
             ),
             actions: [
@@ -161,9 +161,23 @@ class _ShelfScreenState extends State<ShelfScreen> {
                           children: [
                             Expanded(
                               child: TextField(
+                                key: const ValueKey('shelf-search'),
                                 controller: search,
                                 decoration: const InputDecoration(
-                                  prefixIcon: ReaderIcon(ReaderGlyph.search),
+                                  prefixIcon: Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    child: ReaderIcon(
+                                      ReaderGlyph.search,
+                                      size: 18,
+                                    ),
+                                  ),
+                                  prefixIconConstraints: BoxConstraints(
+                                    minWidth: 42,
+                                    maxWidth: 42,
+                                    minHeight: 42,
+                                  ),
                                   hintText: '搜索书名、作者',
                                   isDense: true,
                                 ),

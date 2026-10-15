@@ -9,3 +9,5 @@ Reader is distributed under GPL-3.0-or-later.
 - crypto, characters, html, path, xml and their transitive packages: see Flutter-generated licenses and pubspec.lock.
 
 The Flutter license registry incorporates package license files into the application's open-source license screen. Complete dependency versions and source hosting locations are recorded in pubspec.lock. No third-party ebook or font is bundled.
+
+- OpenCC standard conversion dictionaries (ver.1.1.9): Apache-2.0 — https://github.com/BYVoid/OpenCC/tree/ver.1.1.9 ; vendored source checksums and complete license are in assets/opencc/.

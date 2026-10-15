@@ -5,7 +5,8 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = Reader
+PRODUCT_NAME = 阅读
+PRODUCT_MODULE_NAME = Reader
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.xiongjian.reader

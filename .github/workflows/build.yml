@@ -74,6 +74,10 @@ jobs:
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
       - run: flutter pub get --enforce-lockfile
       - run: flutter build macos --release --no-tree-shake-icons --no-pub --build-number=${{ github.run_number }}
+      - name: Verify native window geometry
+        run: |
+          xcrun swiftc macos/Runner/WindowResizeGeometry.swift tool/window_geometry_tests/main.swift -o "$RUNNER_TEMP/reader-window-tests"
+          "$RUNNER_TEMP/reader-window-tests"
       - name: Package universal macOS app
         run: bash tool/package_macos.sh
       - uses: actions/upload-artifact@v4

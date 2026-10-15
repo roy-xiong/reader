@@ -1,47 +1,76 @@
 import Cocoa
 import FlutterMacOS
 
-/// 原生磨砂窗口、统一圆角、系统菜单和文件面板。正文不透明度独立控制。
+/// 仅标题栏磨砂；阅读视图和窗口内容底层保持透明。窗口几何由 AppKit 保存。
 class MainFlutterWindow: NSWindow {
   private var bridge: FlutterMethodChannel?
   private var choosing = false
+  private var frameObservers: [NSObjectProtocol] = []
+  private let frameName = "ReaderMainWindow"
   private let fileQueue = DispatchQueue(label: "com.xiongjian.reader.files", qos: .userInitiated)
 
   override func awakeFromNib() {
     let controller = FlutterViewController()
     let originalFrame = frame
-    // 扩展内容到标题栏下方，由原生磨砂背景连续覆盖窗口顶部和阅读区域。
     styleMask.insert(.fullSizeContentView)
     let container = NSViewController()
-    let glass = NSVisualEffectView()
-    glass.material = .underWindowBackground
-    glass.blendingMode = .behindWindow
-    glass.state = .active
-    glass.wantsLayer = true
-    glass.layer?.cornerRadius = 12
-    glass.layer?.masksToBounds = true
-    container.view = glass
+    let content = NSView(frame: NSRect(origin: .zero, size: originalFrame.size))
+    content.wantsLayer = true
+    content.layer?.cornerRadius = 12
+    content.layer?.masksToBounds = true
+    container.view = content
+    let titlebar = NSVisualEffectView()
+    titlebar.material = .titlebar
+    titlebar.blendingMode = .behindWindow
+    titlebar.state = .active
+    titlebar.translatesAutoresizingMaskIntoConstraints = false
+    content.addSubview(titlebar)
     container.addChild(controller)
-    glass.addSubview(controller.view)
+    content.addSubview(controller.view)
     controller.view.translatesAutoresizingMaskIntoConstraints = false
+    let handles = ReaderResizeHandleView()
+    handles.translatesAutoresizingMaskIntoConstraints = false
+    content.addSubview(handles)
+    let margin = ReaderWindowGeometry.resizeMargin
     NSLayoutConstraint.activate([
-      controller.view.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
-      controller.view.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
-      controller.view.topAnchor.constraint(equalTo: glass.topAnchor, constant: 32),
-      controller.view.bottomAnchor.constraint(equalTo: glass.bottomAnchor)
+      titlebar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+      titlebar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+      titlebar.topAnchor.constraint(equalTo: content.topAnchor),
+      titlebar.heightAnchor.constraint(equalToConstant: ReaderWindowGeometry.titlebarHeight),
+      controller.view.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: margin),
+      controller.view.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -margin),
+      controller.view.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
+      controller.view.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -margin),
+      handles.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+      handles.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+      handles.topAnchor.constraint(equalTo: content.topAnchor),
+      handles.bottomAnchor.constraint(equalTo: content.bottomAnchor)
     ])
     contentViewController = container
     setFrame(originalFrame, display: true)
     minSize = NSSize(width: 300, height: 320)
-    setContentSize(NSSize(width: 1000, height: 740))
-    center()
-    setFrameAutosaveName("ReaderMainWindow")
     isOpaque = false
     backgroundColor = .clear
     controller.backgroundColor = .clear
-    title = "Reader"
+    title = "阅读"
     titleVisibility = .hidden
     titlebarAppearsTransparent = true
+    hasShadow = true
+    // 先尝试恢复已保存的窗口，再决定是否使用首次启动的默认尺寸。
+    setFrameAutosaveName(frameName)
+    if !setFrameUsingName(frameName) {
+      setContentSize(NSSize(width: 1000, height: 740))
+      center()
+    } else if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
+      center()
+    }
+    for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.willCloseNotification] {
+      frameObservers.append(NotificationCenter.default.addObserver(forName: name, object: self,
+        queue: .main) { [weak self] _ in
+          guard let self = self, !self.styleMask.contains(.fullScreen), !self.isMiniaturized else { return }
+          self.saveFrame(usingName: self.frameName)
+        })
+    }
     RegisterGeneratedPlugins(registry: controller)
     bridge = FlutterMethodChannel(name: "com.xiongjian.reader/platform",
       binaryMessenger: controller.engine.binaryMessenger)
@@ -57,7 +86,10 @@ class MainFlutterWindow: NSWindow {
           result(directory.path)
         } catch { result(FlutterError(code: "storage", message: "无法创建书架目录", details: nil)) }
       case "readingMode":
-        self.hasShadow = true
+        self.hasShadow = (call.arguments as? Bool) != true
+        result(nil)
+      case "minimize":
+        self.miniaturize(nil)
         result(nil)
       case "appearance":
         switch call.arguments as? String {
@@ -87,6 +119,10 @@ class MainFlutterWindow: NSWindow {
     super.awakeFromNib()
   }
 
+  deinit {
+    frameObservers.forEach { NotificationCenter.default.removeObserver($0) }
+  }
+
   /// 系统标准“设置…”入口和 ⌘,；阅读界面无需常驻设置按钮。
   private func installMenus() {
     guard let menu = NSApp.mainMenu else { return }
@@ -112,6 +148,8 @@ class MainFlutterWindow: NSWindow {
     let readingMenu = NSMenu(title: "阅读")
     for (title, action, key) in [
       ("搜索正文…", #selector(findText(_:)), "f"),
+      ("增大字体", #selector(increaseFont(_:)), "+"),
+      ("减小字体", #selector(decreaseFont(_:)), "-"),
       ("添加 / 移除书签", #selector(bookmark(_:)), "d"),
       ("锁定阅读器", #selector(lockApp(_:)), "l")
     ] {
@@ -129,6 +167,8 @@ class MainFlutterWindow: NSWindow {
   @objc private func showShelf(_ sender: Any?) { bridge?.invokeMethod("showShelf", arguments: nil) }
   @objc private func findText(_ sender: Any?) { bridge?.invokeMethod("findText", arguments: nil) }
   @objc private func bookmark(_ sender: Any?) { bridge?.invokeMethod("bookmark", arguments: nil) }
+  @objc private func increaseFont(_ sender: Any?) { bridge?.invokeMethod("increaseFont", arguments: nil) }
+  @objc private func decreaseFont(_ sender: Any?) { bridge?.invokeMethod("decreaseFont", arguments: nil) }
   @objc private func lockApp(_ sender: Any?) { bridge?.invokeMethod("lockApp", arguments: nil) }
 
   /// 选择后立即在授权有效期间复制文件，重启后不再依赖临时的沙盒授权。
@@ -187,5 +227,74 @@ class MainFlutterWindow: NSWindow {
         }
       }
     }
+  }
+}
+
+/// 加宽外沿缩放区域，鼠标拖动使用普通事件分发，不阻塞主线程事件循环。
+private class ReaderResizeHandleView: NSView {
+  private var dragEdges: ReaderResizeEdges = []
+  private var initialFrame: NSRect = .zero
+  private var initialMouse: NSPoint = .zero
+
+  override var isOpaque: Bool { false }
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    guard let window = window, !window.styleMask.contains(.fullScreen) else { return nil }
+    let local = convert(point, from: superview)
+    return ReaderWindowGeometry.edges(at: local, size: bounds.size).isEmpty ? nil : self
+  }
+  override func draw(_ dirtyRect: NSRect) {
+    // 仅在阅读内容外侧的热区绘制极低透明度命中边，内部区域完全不绘制。
+    NSColor(calibratedWhite: 0, alpha: 0.01).setFill()
+    let border = NSBezierPath(rect: bounds)
+    border.append(NSBezierPath(rect: bounds.insetBy(dx: ReaderWindowGeometry.resizeMargin,
+                                                  dy: ReaderWindowGeometry.resizeMargin)))
+    border.windingRule = .evenOdd
+    border.fill()
+  }
+  override func mouseDown(with event: NSEvent) {
+    guard let window = window else { return }
+    dragEdges = ReaderWindowGeometry.edges(at: convert(event.locationInWindow, from: nil), size: bounds.size)
+    initialFrame = window.frame
+    initialMouse = NSEvent.mouseLocation
+  }
+  override func mouseDragged(with event: NSEvent) {
+    guard let window = window, !dragEdges.isEmpty else { return }
+    let mouse = NSEvent.mouseLocation
+    let delta = CGPoint(x: mouse.x - initialMouse.x, y: mouse.y - initialMouse.y)
+    window.setFrame(ReaderWindowGeometry.resizedFrame(initialFrame, delta: delta,
+      edges: dragEdges, minimum: window.minSize), display: true, animate: false)
+  }
+  override func mouseUp(with event: NSEvent) {
+    dragEdges = []
+    window?.invalidateCursorRects(for: self)
+  }
+  override func resetCursorRects() {
+    let m = ReaderWindowGeometry.resizeMargin, w = bounds.width, h = bounds.height
+    guard w > m * 2, h > m * 2 else { return }
+    addCursorRect(NSRect(x: 0, y: m, width: m, height: h - 2 * m), cursor: .resizeLeftRight)
+    addCursorRect(NSRect(x: w - m, y: m, width: m, height: h - 2 * m), cursor: .resizeLeftRight)
+    addCursorRect(NSRect(x: m, y: 0, width: w - 2 * m, height: m), cursor: .resizeUpDown)
+    addCursorRect(NSRect(x: m, y: h - m, width: w - 2 * m, height: m), cursor: .resizeUpDown)
+    addCursorRect(NSRect(x: 0, y: 0, width: m, height: m), cursor: Self.ascendingCursor)
+    addCursorRect(NSRect(x: w - m, y: h - m, width: m, height: m), cursor: Self.ascendingCursor)
+    addCursorRect(NSRect(x: 0, y: h - m, width: m, height: m), cursor: Self.descendingCursor)
+    addCursorRect(NSRect(x: w - m, y: 0, width: m, height: m), cursor: Self.descendingCursor)
+  }
+  private static let ascendingCursor = diagonalCursor(ascending: true)
+  private static let descendingCursor = diagonalCursor(ascending: false)
+  private static func diagonalCursor(ascending: Bool) -> NSCursor {
+    let image = NSImage(size: NSSize(width: 24, height: 24), flipped: false) { _ in
+      let path = NSBezierPath()
+      func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: ascending ? y : 24 - y) }
+      path.move(to: point(6, 6)); path.line(to: point(18, 18))
+      path.move(to: point(6, 11)); path.line(to: point(6, 6)); path.line(to: point(11, 6))
+      path.move(to: point(13, 18)); path.line(to: point(18, 18)); path.line(to: point(18, 13))
+      path.lineCapStyle = .round; path.lineJoinStyle = .round
+      NSColor.white.setStroke(); path.lineWidth = 4; path.stroke()
+      NSColor.black.setStroke(); path.lineWidth = 1.5; path.stroke()
+      return true
+    }
+    return NSCursor(image: image, hotSpot: NSPoint(x: 12, y: 12))
   }
 }
