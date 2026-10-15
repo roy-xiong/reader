@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// 窗口坐标系的外沿命中方向；同一份几何计算供原生拖动和平台回归测试使用。
 struct ReaderResizeEdges: OptionSet {

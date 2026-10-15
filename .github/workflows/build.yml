@@ -76,7 +76,7 @@ jobs:
       - run: flutter build macos --release --no-tree-shake-icons --no-pub --build-number=${{ github.run_number }}
       - name: Verify native window geometry
         run: |
-          xcrun swiftc macos/Runner/WindowResizeGeometry.swift tool/window_geometry_tests/main.swift -o "$RUNNER_TEMP/reader-window-tests"
+          xcrun swiftc -swift-version 5 macos/Runner/WindowResizeGeometry.swift tool/window_geometry_tests/main.swift -o "$RUNNER_TEMP/reader-window-tests"
           "$RUNNER_TEMP/reader-window-tests"
       - name: Package universal macOS app
         run: bash tool/package_macos.sh

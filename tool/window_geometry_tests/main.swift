@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 let size = CGSize(width: 1000, height: 740)
 assert(ReaderWindowGeometry.edges(at: CGPoint(x: 8, y: 300), size: size) == .left)
