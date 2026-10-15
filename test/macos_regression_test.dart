@@ -103,8 +103,14 @@ void main() {
     expect(model.locked, isTrue);
     model.locked = false;
     await tester.pumpWidget(ReaderApp(model: model));
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    for (final state in [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
     await tester.pump();
     expect(model.locked, isFalse);
     await tester.pumpWidget(const SizedBox.shrink());
