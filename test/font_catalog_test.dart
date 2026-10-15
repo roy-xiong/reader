@@ -7,6 +7,7 @@ import 'package:reader/domain/models.dart';
 import 'package:reader/ui/app_model.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   test('批量导入、切换、去重与重启后字体列表保持一致', () async {
     final directory = await Directory.systemTemp.createTemp(
       'reader_font_catalog_',

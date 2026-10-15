@@ -179,7 +179,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final model = AppModel(_MemoryRepository(), PlatformService());
-      await model.initialize();
+      await tester.runAsync(model.initialize);
       final boundary = GlobalKey();
       Future<void> show(Widget screen) async {
         await tester.pumpWidget(

@@ -99,7 +99,7 @@ void main() {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     final model = AppModel(_PinRepository(), PlatformService());
-    await model.initialize();
+    await tester.runAsync(model.initialize);
     expect(model.locked, isTrue);
     model.locked = false;
     await tester.pumpWidget(ReaderApp(model: model));
@@ -109,7 +109,7 @@ void main() {
     expect(model.locked, isFalse);
     await tester.pumpWidget(const SizedBox.shrink());
     final restarted = AppModel(_PinRepository(), PlatformService());
-    await restarted.initialize();
+    await tester.runAsync(restarted.initialize);
     expect(restarted.locked, isTrue);
     restarted.dispose();
   });
