@@ -200,12 +200,12 @@ void main() {
         ),
       );
       if (size.width == 1400) {
-        await _capture(boundary, 'shelf-wide');
+        await tester.runAsync(() => _capture(boundary, 'shelf-wide'));
       }
       await show(SettingsScreen(model: model));
       expect(find.text('阅读背景不透明度'), findsOneWidget);
       if (size.width == 1400) {
-        await _capture(boundary, 'settings-wide');
+        await tester.runAsync(() => _capture(boundary, 'settings-wide'));
       }
       await show(
         ReaderScreen(model: model, book: _book, openSettings: () async {}),
@@ -213,7 +213,7 @@ void main() {
       expect(find.byType(Slider), findsNothing);
       expect(find.text('阅读背景不透明度'), findsNothing);
       if (size.width == 1400) {
-        await _capture(boundary, 'reader-wide');
+        await tester.runAsync(() => _capture(boundary, 'reader-wide'));
       }
       await tester.pumpWidget(const SizedBox.shrink());
       model.dispose();

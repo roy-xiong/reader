@@ -248,8 +248,42 @@ class BookParser {
     if (header.getUint32(first + 4) > 48 * 1024 * 1024) {
       throw const FormatException('MOBI 正文过大');
     }
+    final compression = header.getUint16(first);
+    final isMobi =
+        first + 40 <= bytes.length &&
+        ascii.decode(
+              bytes.sublist(first + 16, first + 20),
+              allowInvalid: true,
+            ) ==
+            'MOBI';
+    final version = isMobi ? header.getUint32(first + 36) : 1;
+    if (version < 8 && (compression == 1 || compression == 2)) {
+      return _legacyMobi(bytes, header, first, records, fallback);
+    }
     final data = await DartMobiReader.read(bytes);
-    final raw = data.parseOpt(true, true, false);
+    // MOBI6 的短头部会触发依赖的过度读取，补全解压所需的最小字段。
+    if (version < 8 && data.mobiHeader == null && isMobi) {
+      data.mobiHeader = MobiHeader()
+        ..headerSize = header.getUint32(first + 20)
+        ..version = version
+        ..huffRecordIndex = header.getUint32(first + 112)
+        ..huffRecordCount = header.getUint32(first + 116)
+        ..extraFlags = first + 244 <= bytes.length
+            ? header.getUint16(first + 242)
+            : 0;
+      final text = _htmlText(
+        html
+            .parse(
+              decodeText(
+                RawMlUtils.getRawml(data, header.getUint32(first + 4)),
+                encoding: header.getUint32(first + 28) == 1252 ? '1252' : null,
+              ),
+            )
+            .body,
+      );
+      return _assemble(fallback, '', [(fallback, text)]);
+    }
+    final raw = data.parseOpt(false, false, false);
     final sections = <(String, String)>[];
     var part = raw.markup;
     var count = 0;
@@ -274,6 +308,142 @@ class BookParser {
       part = part.next;
     }
     return _assemble(fallback, '', sections);
+  }
+
+  /// MOBI6 / PalmDOC 的有界解码，不依赖可选目录或词典索引。
+  /// 每条压缩记录单独解码，反向引用可覆盖重叠区，保持 PalmDOC 原始语义。
+  static BookDocument _legacyMobi(
+    Uint8List bytes,
+    ByteData h,
+    int first,
+    int records,
+    String fallback,
+  ) {
+    final count = h.getUint16(first + 8);
+    final compression = h.getUint16(first);
+    if (count == 0 || count >= records) {
+      throw const FormatException('MOBI 正文记录数无效');
+    }
+    final mobi =
+        first + 40 <= bytes.length &&
+        ascii.decode(
+              bytes.sublist(first + 16, first + 20),
+              allowInvalid: true,
+            ) ==
+            'MOBI';
+    final headerLength = mobi ? h.getUint32(first + 20) : 0;
+    final encoding = mobi ? h.getUint32(first + 28) : 1252;
+    final flags = headerLength >= 228 && first + 244 <= bytes.length
+        ? h.getUint16(first + 242)
+        : 0;
+    final output = BytesBuilder(copy: false);
+    for (var index = 1; index <= count; index++) {
+      final start = h.getUint32(78 + index * 8);
+      final end = index + 1 < records
+          ? h.getUint32(78 + (index + 1) * 8)
+          : bytes.length;
+      if (start < first || end <= start || end > bytes.length) {
+        throw const FormatException('MOBI 记录偏移损坏');
+      }
+      var limit = end;
+      for (var bits = flags >> 1; bits != 0; bits >>= 1) {
+        if (bits & 1 == 0) {
+          continue;
+        }
+        var size = 0, shift = 0, used = 0;
+        while (used < 4) {
+          if (limit - used - 1 < start) {
+            throw const FormatException('MOBI 尾部记录损坏');
+          }
+          final value = bytes[limit - used - 1];
+          size |= (value & 127) << shift;
+          shift += 7;
+          used++;
+          if (value & 128 != 0) {
+            break;
+          }
+        }
+        if (size < used || size > limit - start) {
+          throw const FormatException('MOBI 尾部长度无效');
+        }
+        limit -= size;
+      }
+      if (flags & 1 != 0) {
+        if (limit <= start) {
+          throw const FormatException('MOBI 多字节尾部损坏');
+        }
+        limit -= (bytes[limit - 1] & 3) + 1;
+      }
+      if (limit < start) {
+        throw const FormatException('MOBI 正文记录损坏');
+      }
+      final decoded = <int>[];
+      if (compression == 1) {
+        decoded.addAll(bytes.sublist(start, limit));
+      } else {
+        var cursor = start;
+        while (cursor < limit) {
+          final value = bytes[cursor++];
+          if (value >= 1 && value <= 8) {
+            if (cursor + value > limit) {
+              throw const FormatException('PalmDOC 字面记录损坏');
+            }
+            decoded.addAll(bytes.sublist(cursor, cursor + value));
+            cursor += value;
+          } else if (value < 128) {
+            decoded.add(value);
+          } else if (value >= 192) {
+            decoded.addAll([32, value ^ 128]);
+          } else {
+            if (cursor >= limit) {
+              throw const FormatException('PalmDOC 引用记录损坏');
+            }
+            final pair = value << 8 | bytes[cursor++];
+            final distance = pair >> 3 & 2047, length = (pair & 7) + 3;
+            if (distance == 0 || distance > decoded.length) {
+              throw const FormatException('PalmDOC 引用越界');
+            }
+            for (var n = 0; n < length; n++) {
+              decoded.add(decoded[decoded.length - distance]);
+            }
+          }
+          if (decoded.length > 65536) {
+            throw const FormatException('PalmDOC 单条记录过大');
+          }
+        }
+      }
+      output.add(decoded);
+      if (output.length > 48 * 1024 * 1024) {
+        throw const FormatException('MOBI 正文过大');
+      }
+    }
+    var title = fallback;
+    if (mobi && first + 92 <= bytes.length) {
+      final offset = h.getUint32(first + 84), length = h.getUint32(first + 88);
+      if (length > 0 &&
+          length <= 4096 &&
+          first + offset + length <= bytes.length) {
+        title = decodeText(
+          bytes.sublist(first + offset, first + offset + length),
+          encoding: encoding == 1252 ? '1252' : null,
+        ).trim();
+      }
+    }
+    final content = output.takeBytes();
+    final declared = h.getUint32(first + 4);
+    final text = decodeText(
+      declared > 0 && declared < content.length
+          ? content.sublist(0, declared)
+          : content,
+      encoding: encoding == 1252 ? '1252' : null,
+    );
+    final document = html.parse(text);
+    return _assemble(title.isEmpty ? fallback : title, '', [
+      (
+        document.querySelector('h1,h2,h3')?.text.trim() ?? '正文',
+        _htmlText(document.body),
+      ),
+    ]);
   }
 
   /// 保留块级顺序和段落边界，跳过脚本样式；重排正文由用户统一控制样式。
