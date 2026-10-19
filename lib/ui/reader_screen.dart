@@ -11,6 +11,9 @@ import '../data/chinese_script_service.dart';
 import 'contents_dialog.dart';
 import 'app_model.dart';
 import 'core/reader_icon.dart';
+import 'page_flip_preview.dart';
+import 'page_flip_session.dart';
+import 'reader_page.dart';
 
 /// 阅读页默认仅显示正文和进度，点击中央时才显示临时操作栏。
 class ReaderScreen extends StatefulWidget {
@@ -40,7 +43,10 @@ class ReaderScreenState extends State<ReaderScreen> {
   List<ReadingPage> pages = [];
   int pageIndex = 0, anchor = 0, generation = 0;
   bool loading = true, arranging = false, controls = false;
-  double? seeking;
+  PageFlipSession? _preview;
+  double _pageWidth = 0, _pageHeight = 0;
+  TextStyle _pageStyle = const TextStyle();
+  TextScaler _pageScaler = TextScaler.noScaling;
   BookPageIndex? bookPageIndex;
   String? indexKey;
   int indexGeneration = 0;
@@ -49,6 +55,10 @@ class ReaderScreenState extends State<ReaderScreen> {
   final pager = GlobalKey<_CoverPagerState>();
   bool navigationBusy = false;
   Future<void> requestTurn(bool forward) async {
+    if (_preview != null) {
+      _preview?.step(forward);
+      return;
+    }
     if (pager.currentState != null) {
       await pager.currentState?.turn(forward);
     }
@@ -67,6 +77,9 @@ class ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _settingsChanged() {
+    if (model.locked && _preview != null) {
+      _closePreview();
+    }
     if (sourceDocument != null &&
         requestedScript != model.settings.scriptMode) {
       unawaited(_applyScript());
@@ -113,6 +126,7 @@ class ReaderScreenState extends State<ReaderScreen> {
       indexGeneration++;
       indexDebounce?.cancel();
       setState(() {
+        _disposePreview();
         document = rendered.document;
         offsets = rendered.offsets;
         anchor = offsets
@@ -141,6 +155,7 @@ class ReaderScreenState extends State<ReaderScreen> {
 
   @override
   void dispose() {
+    _disposePreview();
     model.removeListener(_settingsChanged);
     conversionGeneration++;
     scriptService.cancel();
@@ -148,6 +163,82 @@ class ReaderScreenState extends State<ReaderScreen> {
     indexGeneration++;
     indexDebounce?.cancel();
     super.dispose();
+  }
+
+  void _previewChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// 预览退出时释放缓存并取消排版。临时预览从不修改 anchor 或持久化进度。
+  void _disposePreview() {
+    final preview = _preview;
+    _preview = null;
+    preview?.removeListener(_previewChanged);
+    preview?.dispose();
+  }
+
+  void _closePreview() {
+    if (mounted && _preview != null) {
+      setState(_disposePreview);
+    }
+  }
+
+  void _startPreview() {
+    final doc = document;
+    final key = layoutKey;
+    if (_preview != null ||
+        doc == null ||
+        key == null ||
+        current == null ||
+        arranging ||
+        model.locked ||
+        _pageWidth <= 0 ||
+        _pageHeight <= 0) {
+      return;
+    }
+    final preview = PageFlipSession(
+      document: doc,
+      originOffset: current!.start,
+      width: _pageWidth,
+      height: _pageHeight,
+      style: _pageStyle,
+      scaler: _pageScaler,
+      paragraphSpacing: model.settings.paragraphSpacing,
+      layoutKey: key,
+      index: bookPageIndex,
+      initialPages: pages,
+    );
+    preview.addListener(_previewChanged);
+    setState(() => _preview = preview);
+  }
+
+  void _seekPreview(double value) {
+    _startPreview();
+    _preview?.seekFraction(value);
+  }
+
+  /// 只有明确点击预览正文或“阅读此页”才提交跳转，原文坐标映射由 _jump 统一处理。
+  void _confirmPreview() {
+    final preview = _preview;
+    final page = preview?.page;
+    if (preview?.ready != true || page == null || model.locked) {
+      return;
+    }
+    _closePreview();
+    unawaited(_jump(page.start));
+  }
+
+  double _sliderFraction() {
+    if (_preview != null) {
+      return _preview!.fraction;
+    }
+    final index = bookPageIndex;
+    final offset = current?.start ?? anchor;
+    return index != null && index.totalPages > 1
+        ? (index.pageNumberAt(offset) - 1) / (index.totalPages - 1)
+        : (offset / max(1, (document?.text.length ?? 1) - 1)).clamp(0.0, 1.0);
   }
 
   /// 尺寸与排版参数组成布局标识。只接受最后一次任务，避免拖动窗口时旧结果覆盖新结果。
@@ -168,6 +259,19 @@ class ReaderScreenState extends State<ReaderScreen> {
         '${s.paragraphSpacing}/${s.fontId}/${model.loadedFontId}/${s.fontWeight}/$requestedScript/${scaler.scale(s.fontSize)}';
     _ensureBookIndex(metricsKey, width, height, style, scaler);
     final key = '$metricsKey/$chapterIndex';
+    _pageWidth = width;
+    _pageHeight = height;
+    _pageStyle = style;
+    _pageScaler = scaler;
+    final preview = _preview;
+    if (preview != null && preview.layoutKey != key) {
+      // 旋转、窗口缩放、字体或简繁变化后关闭旧预览，避免提交过期分页。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && identical(_preview, preview)) {
+          _closePreview();
+        }
+      });
+    }
     if (key == layoutKey) {
       return;
     }
@@ -246,6 +350,7 @@ class ReaderScreenState extends State<ReaderScreen> {
         );
         if (mounted && ticket == indexGeneration && index != null) {
           setState(() => bookPageIndex = index);
+          _preview?.updateIndex(index);
         }
       } catch (_) {
         if (mounted && ticket == indexGeneration) {
@@ -269,6 +374,10 @@ class ReaderScreenState extends State<ReaderScreen> {
 
   Future<void> escapeReading() async {
     if (model.locked || ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    if (_preview != null) {
+      _closePreview();
       return;
     }
     if (defaultTargetPlatform == TargetPlatform.macOS) {
@@ -521,7 +630,12 @@ class ReaderScreenState extends State<ReaderScreen> {
         color: foreground,
       );
       return PopScope(
-        canPop: !model.locked,
+        canPop: !model.locked && _preview == null,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && _preview != null) {
+            _closePreview();
+          }
+        },
         child: CallbackShortcuts(
           bindings: {
             const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
@@ -638,7 +752,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                                             onToggle: () => setState(
                                               () => controls = !controls,
                                             ),
-                                            child: _PageCanvas(
+                                            child: ReaderPage(
                                               key: ValueKey(
                                                 '${page.start}/$layoutKey',
                                               ),
@@ -646,9 +760,6 @@ class ReaderScreenState extends State<ReaderScreen> {
                                               width: width,
                                               style: style,
                                               scaler: scaler,
-                                              background: background.withValues(
-                                                alpha: s.backgroundOpacity,
-                                              ),
                                             ),
                                           ),
                                   ),
@@ -672,59 +783,81 @@ class ReaderScreenState extends State<ReaderScreen> {
                           ),
                         ],
                       ),
-                    if (controls && !loading && error == null) ...[
-                      Positioned(
-                        left: 12,
-                        right: 12,
-                        top: 8,
-                        child: Material(
-                          elevation: 3,
-                          color: Theme.of(context).colorScheme.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          child: Row(
-                            children: [
-                              IconButton(
-                                tooltip: '返回书架',
-                                onPressed: () => Navigator.pop(context),
-                                icon: const ReaderIcon(ReaderGlyph.back),
-                              ),
-                              Expanded(
-                                child: Text(
-                                  book.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: '搜索正文',
-                                onPressed: showSearch,
-                                icon: const ReaderIcon(ReaderGlyph.search),
-                              ),
-                              IconButton(
-                                tooltip: '添加 / 移除书签',
-                                onPressed: toggleBookmark,
-                                icon: ReaderIcon(
-                                  book.bookmarks.any(
-                                        (m) =>
-                                            m.offset ==
-                                            _sourceOffset(
-                                              current?.start ?? anchor,
-                                            ),
-                                      )
-                                      ? ReaderGlyph.bookmark
-                                      : ReaderGlyph.bookmarkOutline,
-                                ),
-                              ),
-                              IconButton(
-                                tooltip: '设置',
-                                onPressed: widget.openSettings,
-                                icon: const ReaderIcon(ReaderGlyph.settings),
-                              ),
-                            ],
-                          ),
+                    if (_preview != null) ...[
+                      Positioned.fill(
+                        child: GestureDetector(
+                          onTap: _closePreview,
+                          child: const ColoredBox(color: Color(0xaa000000)),
                         ),
                       ),
                       Positioned(
+                        left: 24,
+                        right: 24,
+                        top: 8,
+                        bottom: 186,
+                        child: PageFlipPreview(
+                          session: _preview!,
+                          background: background,
+                          onClose: _closePreview,
+                          onConfirm: _confirmPreview,
+                        ),
+                      ),
+                    ],
+                    if (controls && !loading && error == null) ...[
+                      if (_preview == null)
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          top: 8,
+                          child: Material(
+                            elevation: 3,
+                            color: Theme.of(context).colorScheme.surface,
+                            borderRadius: BorderRadius.circular(16),
+                            child: Row(
+                              children: [
+                                IconButton(
+                                  tooltip: '返回书架',
+                                  onPressed: () => Navigator.pop(context),
+                                  icon: const ReaderIcon(ReaderGlyph.back),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    book.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: '搜索正文',
+                                  onPressed: showSearch,
+                                  icon: const ReaderIcon(ReaderGlyph.search),
+                                ),
+                                IconButton(
+                                  tooltip: '添加 / 移除书签',
+                                  onPressed: toggleBookmark,
+                                  icon: ReaderIcon(
+                                    book.bookmarks.any(
+                                          (m) =>
+                                              m.offset ==
+                                              _sourceOffset(
+                                                current?.start ?? anchor,
+                                              ),
+                                        )
+                                        ? ReaderGlyph.bookmark
+                                        : ReaderGlyph.bookmarkOutline,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: '设置',
+                                  onPressed: widget.openSettings,
+                                  icon: const ReaderIcon(ReaderGlyph.settings),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      Positioned(
+                        key: const ValueKey('reading-bottom-controls'),
                         left: 12,
                         right: 12,
                         bottom: 40,
@@ -737,61 +870,104 @@ class ReaderScreenState extends State<ReaderScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                if (_preview != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 12),
+                                    child: Text(
+                                      _preview!.locationLabel,
+                                      key: const ValueKey('preview-location'),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.labelMedium,
+                                    ),
+                                  ),
                                 Slider(
-                                  value:
-                                      seeking ??
-                                      (anchor /
-                                              max(
-                                                1,
-                                                document?.text.length ?? 1,
-                                              ))
-                                          .clamp(0.0, 1.0),
-                                  onChanged: (value) =>
-                                      setState(() => seeking = value),
-                                  onChangeEnd: (value) {
-                                    setState(() => seeking = null);
-                                    unawaited(
-                                      _jump(
-                                        (value *
-                                                max(
-                                                  1,
-                                                  (document?.text.length ?? 1) -
-                                                      1,
-                                                ))
-                                            .round(),
-                                      ),
-                                    );
-                                  },
+                                  key: const ValueKey('reading-seek-slider'),
+                                  value: _sliderFraction(),
+                                  onChangeStart: (_) => _startPreview(),
+                                  onChanged: arranging || model.locked
+                                      ? null
+                                      : _seekPreview,
+                                  onChangeEnd: (_) => _preview?.flush(),
                                 ),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    TextButton.icon(
-                                      onPressed: () => _contents(),
-                                      icon: const ReaderIcon(
-                                        ReaderGlyph.list,
-                                        size: 18,
+                                if (_preview != null)
+                                  Row(
+                                    children: [
+                                      IconButton(
+                                        key: const ValueKey('preview-previous'),
+                                        tooltip: '预览上一页',
+                                        onPressed: _preview!.canPrevious
+                                            ? () => _preview?.step(false)
+                                            : null,
+                                        icon: const ReaderIcon(
+                                          ReaderGlyph.back,
+                                        ),
                                       ),
-                                      label: const Text('目录'),
-                                    ),
-                                    TextButton.icon(
-                                      onPressed: () =>
-                                          _contents(bookmarks: true),
-                                      icon: const ReaderIcon(
-                                        ReaderGlyph.bookmarks,
-                                        size: 18,
+                                      IconButton(
+                                        key: const ValueKey('preview-next'),
+                                        tooltip: '预览下一页',
+                                        onPressed: _preview!.canNext
+                                            ? () => _preview?.step(true)
+                                            : null,
+                                        icon: const ReaderIcon(
+                                          ReaderGlyph.chevronRight,
+                                        ),
                                       ),
-                                      label: const Text('书签'),
-                                    ),
-                                    IconButton(
-                                      tooltip: '收起工具',
-                                      onPressed: () =>
-                                          setState(() => controls = false),
-                                      icon: const ReaderIcon(ReaderGlyph.down),
-                                    ),
-                                  ],
-                                ),
+                                      Expanded(
+                                        child: FilledButton(
+                                          key: const ValueKey(
+                                            'confirm-page-preview',
+                                          ),
+                                          onPressed: _preview!.ready
+                                              ? _confirmPreview
+                                              : null,
+                                          child: const Text('阅读此页'),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: '预览回到原阅读页',
+                                        onPressed: () =>
+                                            _preview?.returnToOrigin(),
+                                        icon: const ReaderIcon(
+                                          ReaderGlyph.restore,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceEvenly,
+                                    children: [
+                                      TextButton.icon(
+                                        onPressed: () => _contents(),
+                                        icon: const ReaderIcon(
+                                          ReaderGlyph.list,
+                                          size: 18,
+                                        ),
+                                        label: const Text('目录'),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: () =>
+                                            _contents(bookmarks: true),
+                                        icon: const ReaderIcon(
+                                          ReaderGlyph.bookmarks,
+                                          size: 18,
+                                        ),
+                                        label: const Text('书签'),
+                                      ),
+                                      IconButton(
+                                        tooltip: '收起工具',
+                                        onPressed: () =>
+                                            setState(() => controls = false),
+                                        icon: const ReaderIcon(
+                                          ReaderGlyph.down,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                               ],
                             ),
                           ),
@@ -807,80 +983,6 @@ class ReaderScreenState extends State<ReaderScreen> {
       );
     },
   );
-}
-
-/// 页面自身绘制精确分页的段落，释放每次绘制创建的原生 TextPainter。
-class _PageCanvas extends StatelessWidget {
-  const _PageCanvas({
-    super.key,
-    required this.page,
-    required this.width,
-    required this.style,
-    required this.scaler,
-    required this.background,
-  });
-  final ReadingPage page;
-  final double width;
-  final TextStyle style;
-  final TextScaler scaler;
-  final Color background;
-  @override
-  Widget build(BuildContext context) => Semantics(
-    label: page.fragments.map((f) => f.text).join('\n'),
-    child: ClipRect(
-      child: CustomPaint(
-        painter: _TextPagePainter(page, width, style, scaler, background),
-        size: Size.infinite,
-      ),
-    ),
-  );
-}
-
-class _TextPagePainter extends CustomPainter {
-  _TextPagePainter(
-    this.page,
-    this.width,
-    this.style,
-    this.scaler,
-    this.background,
-  );
-  final ReadingPage page;
-  final double width;
-  final TextStyle style;
-  final TextScaler scaler;
-  final Color background;
-  @override
-  void paint(Canvas canvas, Size size) {
-    // 透明背景不在单页上重复叠加，交由整个阅读窗口统一绘制。
-    for (final fragment in page.fragments) {
-      final painter = TextPainter(
-        text: TextSpan(
-          text: fragment.text,
-          style: Pagination.fragmentStyle(style, fragment.isHeading),
-        ),
-        textDirection: TextDirection.ltr,
-        textScaler: scaler,
-      )..layout(maxWidth: width);
-      painter.paint(canvas, Offset(0, fragment.y));
-      painter.dispose();
-      if (fragment.separatorAfter) {
-        canvas.drawLine(
-          Offset(0, fragment.y + fragment.height + 8),
-          Offset(width, fragment.y + fragment.height + 8),
-          Paint()
-            ..color = (style.color ?? Colors.grey).withValues(alpha: .35)
-            ..strokeWidth = .7,
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _TextPagePainter old) =>
-      old.page != page ||
-      old.width != width ||
-      old.style != style ||
-      old.scaler != scaler;
 }
 
 /// 横向覆盖：下一页从右侧覆盖当前页，返回时当前页向右移出。

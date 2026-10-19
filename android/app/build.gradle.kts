@@ -26,6 +26,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 本机调试与流水线测试包并存，避免签名不同导致卸载原版书架。
+            applicationIdSuffix = ".debug"
+        }
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
