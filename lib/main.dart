@@ -11,6 +11,7 @@ import 'ui/lock_screen.dart';
 import 'ui/reader_screen.dart';
 import 'ui/settings_screen.dart';
 import 'ui/shelf_screen.dart';
+import 'ui/wifi_upload_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -105,9 +106,9 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
       case 'openSettings':
         await _settings();
       case 'importBooks':
-        await model.importBooks();
+        await _importBooks();
       case 'importFolder':
-        await model.importBooks(folder: true);
+        await _importBooks(folder: true);
       case 'showShelf':
         navigator.currentState?.popUntil((r) => r.isFirst);
       case 'findText':
@@ -140,6 +141,16 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
       /* 存储错误已由模型向用户显示。 */
     } finally {
       settingsOpen = false;
+    }
+  }
+
+  Future<void> _importBooks({bool folder = false}) async {
+    if (Platform.isIOS && !model.locked) {
+      await navigator.currentState?.push(
+        MaterialPageRoute<void>(builder: (_) => WifiUploadScreen(model: model)),
+      );
+    } else {
+      await model.importBooks(folder: folder);
     }
   }
 
@@ -198,7 +209,7 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
           const SingleActivator(LogicalKeyboardKey.comma, control: true): () =>
               unawaited(_settings()),
           const SingleActivator(LogicalKeyboardKey.keyO, control: true): () =>
-              unawaited(model.importBooks()),
+              unawaited(_importBooks()),
         },
         child: Stack(
           children: [

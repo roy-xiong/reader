@@ -85,8 +85,31 @@ jobs:
           name: reader-macos
           path: dist/
           compression-level: 0
+  ios:
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Flutter 3.44.4
+        run: |
+          git clone --depth 1 --branch 3.44.4 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build ios --release --no-codesign --no-tree-shake-icons --no-pub --build-number=${{ github.run_number }}
+      - name: Package unsigned iOS app
+        run: |
+          mkdir -p dist "$RUNNER_TEMP/reader-ios/Payload"
+          ditto build/ios/iphoneos/Runner.app "$RUNNER_TEMP/reader-ios/Payload/Runner.app"
+          ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/reader-ios/Payload" dist/Reader-iOS-unsigned.ipa
+          shasum -a 256 dist/Reader-iOS-unsigned.ipa > dist/Reader-iOS.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-ios
+          path: dist/
+          compression-level: 0
   release:
-    needs: [android, macos]
+    needs: [android, macos, ios]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -100,6 +123,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: reader-macos
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: reader-ios
           path: dist
           merge-multiple: true
       - name: Publish installable preview

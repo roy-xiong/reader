@@ -14,6 +14,7 @@ import 'page_flip_preview.dart';
 import 'page_flip_session.dart';
 import 'reader_page.dart';
 import 'reader_pager.dart';
+import 'reading_backdrop.dart';
 
 /// 阅读页默认仅显示正文和进度，点击中央时才显示临时操作栏。
 class ReaderScreen extends StatefulWidget {
@@ -436,6 +437,10 @@ class ReaderScreenState extends State<ReaderScreen> {
         }
       }
       _recordProgress(anchor);
+      if (current == null || current?.start == page.start) {
+        return false;
+      }
+      model.recordPageTurn();
       return true;
     } finally {
       navigationBusy = false;
@@ -616,7 +621,9 @@ class ReaderScreenState extends State<ReaderScreen> {
           ? (dark ? const Color(0xff171c1b) : const Color(0xfff7f5ef))
           : Color(s.backgroundColor!);
       final foreground = s.textColor == null
-          ? (dark ? const Color(0xff999999) : const Color(0xff303b35))
+          ? (model.currentPhoto != null
+                ? const Color(0xffe7e7e7)
+                : (dark ? const Color(0xff999999) : const Color(0xff303b35)))
           : Color(s.textColor!);
       final style = TextStyle(
         fontFamily: s.fontId != null && s.fontId == model.loadedFontId
@@ -682,304 +689,317 @@ class ReaderScreenState extends State<ReaderScreen> {
           child: Focus(
             autofocus: true,
             child: Scaffold(
-              backgroundColor: background.withValues(
-                alpha: s.backgroundOpacity,
-              ),
-              body: SafeArea(
-                child: Stack(
-                  children: [
-                    if (loading)
-                      const Center(child: CircularProgressIndicator())
-                    else if (error != null)
-                      Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(error!),
-                              const SizedBox(height: 24),
-                              FilledButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('返回书架'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    else
-                      Column(
-                        children: [
-                          Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final padding = constraints.maxWidth > 700
-                                    ? 46.0
-                                    : 24.0;
-                                final width = max(
-                                  1.0,
-                                  min(
-                                    860.0,
-                                    constraints.maxWidth - padding * 2,
-                                  ),
-                                );
-                                final height = max(
-                                  1.0,
-                                  constraints.maxHeight - 32,
-                                );
-                                final scaler = MediaQuery.textScalerOf(context);
-                                _ensureLayout(width, height, style, scaler);
-                                final page = current;
-                                return Center(
-                                  child: SizedBox(
-                                    width: width,
-                                    height: height,
-                                    child: page == null
-                                        ? Center(
-                                            child: SizedBox(
-                                              width: 18,
-                                              height: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 1.5,
-                                                color: foreground,
-                                              ),
-                                            ),
-                                          )
-                                        : ReaderPager(
-                                            key: pager,
-                                            effect: s.pageEffect,
-                                            particleDirectional:
-                                                s.particleDirectional,
-                                            background: background.withValues(
-                                              alpha: s.backgroundOpacity,
-                                            ),
-                                            onTurn: _turn,
-                                            onToggle: () => setState(
-                                              () => controls = !controls,
-                                            ),
-                                            child: ReaderPage(
-                                              key: ValueKey(
-                                                '${page.start}/$layoutKey',
-                                              ),
-                                              page: page,
-                                              width: width,
-                                              style: style,
-                                              scaler: scaler,
-                                            ),
-                                          ),
-                                  ),
-                                );
-                              },
+              backgroundColor: model.currentPhoto != null
+                  ? Colors.transparent
+                  : background.withValues(alpha: s.backgroundOpacity),
+              body: ReadingBackdrop(
+                model: model,
+                background: background,
+                child: SafeArea(
+                  child: Stack(
+                    children: [
+                      if (loading)
+                        const Center(child: CircularProgressIndicator())
+                      else if (error != null)
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(error!),
+                                const SizedBox(height: 24),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text('返回书架'),
+                                ),
+                              ],
                             ),
                           ),
-                          SizedBox(
-                            height: 34,
-                            child: Center(
-                              child: Text(
-                                _progressLabel(),
-                                key: const ValueKey('reading-progress'),
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: foreground.withValues(alpha: .65),
-                                  letterSpacing: .5,
+                        )
+                      else
+                        Column(
+                          children: [
+                            Expanded(
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final padding = constraints.maxWidth > 700
+                                      ? 46.0
+                                      : 24.0;
+                                  final width = max(
+                                    1.0,
+                                    min(
+                                      860.0,
+                                      constraints.maxWidth - padding * 2,
+                                    ),
+                                  );
+                                  final height = max(
+                                    1.0,
+                                    constraints.maxHeight - 32,
+                                  );
+                                  final scaler = MediaQuery.textScalerOf(
+                                    context,
+                                  );
+                                  _ensureLayout(width, height, style, scaler);
+                                  final page = current;
+                                  return Center(
+                                    child: SizedBox(
+                                      width: width,
+                                      height: height,
+                                      child: page == null
+                                          ? Center(
+                                              child: SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 1.5,
+                                                      color: foreground,
+                                                    ),
+                                              ),
+                                            )
+                                          : ReaderPager(
+                                              key: pager,
+                                              effect: s.pageEffect,
+                                              particleDirectional:
+                                                  s.particleDirectional,
+                                              background: background.withValues(
+                                                alpha: s.backgroundOpacity,
+                                              ),
+                                              onTurn: _turn,
+                                              onToggle: () => setState(
+                                                () => controls = !controls,
+                                              ),
+                                              child: ReaderPage(
+                                                key: ValueKey(
+                                                  '${page.start}/$layoutKey',
+                                                ),
+                                                page: page,
+                                                width: width,
+                                                style: style,
+                                                scaler: scaler,
+                                              ),
+                                            ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            SizedBox(
+                              height: 34,
+                              child: Center(
+                                child: Text(
+                                  _progressLabel(),
+                                  key: const ValueKey('reading-progress'),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: foreground.withValues(alpha: .65),
+                                    letterSpacing: .5,
+                                  ),
                                 ),
                               ),
                             ),
+                          ],
+                        ),
+                      if (_preview != null) ...[
+                        Positioned.fill(
+                          child: GestureDetector(
+                            onTap: _closePreview,
+                            child: const ColoredBox(color: Color(0xaa000000)),
                           ),
-                        ],
-                      ),
-                    if (_preview != null) ...[
-                      Positioned.fill(
-                        child: GestureDetector(
-                          onTap: _closePreview,
-                          child: const ColoredBox(color: Color(0xaa000000)),
                         ),
-                      ),
-                      Positioned(
-                        left: 24,
-                        right: 24,
-                        top: 8,
-                        bottom: 186,
-                        child: PageFlipPreview(
-                          session: _preview!,
-                          background: background,
-                          onClose: _closePreview,
-                          onConfirm: _confirmPreview,
-                        ),
-                      ),
-                    ],
-                    if (controls && !loading && error == null) ...[
-                      if (_preview == null)
                         Positioned(
+                          left: 24,
+                          right: 24,
+                          top: 8,
+                          bottom: 186,
+                          child: PageFlipPreview(
+                            session: _preview!,
+                            background: background,
+                            onClose: _closePreview,
+                            onConfirm: _confirmPreview,
+                          ),
+                        ),
+                      ],
+                      if (controls && !loading && error == null) ...[
+                        if (_preview == null)
+                          Positioned(
+                            left: 12,
+                            right: 12,
+                            top: 8,
+                            child: Material(
+                              elevation: 3,
+                              color: Theme.of(context).colorScheme.surface,
+                              borderRadius: BorderRadius.circular(16),
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    tooltip: '返回书架',
+                                    onPressed: () => Navigator.pop(context),
+                                    icon: const ReaderIcon(ReaderGlyph.back),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      book.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: '搜索正文',
+                                    onPressed: showSearch,
+                                    icon: const ReaderIcon(ReaderGlyph.search),
+                                  ),
+                                  IconButton(
+                                    tooltip: '添加 / 移除书签',
+                                    onPressed: toggleBookmark,
+                                    icon: ReaderIcon(
+                                      book.bookmarks.any(
+                                            (m) =>
+                                                m.offset ==
+                                                _sourceOffset(
+                                                  current?.start ?? anchor,
+                                                ),
+                                          )
+                                          ? ReaderGlyph.bookmark
+                                          : ReaderGlyph.bookmarkOutline,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: '设置',
+                                    onPressed: widget.openSettings,
+                                    icon: const ReaderIcon(
+                                      ReaderGlyph.settings,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        Positioned(
+                          key: const ValueKey('reading-bottom-controls'),
                           left: 12,
                           right: 12,
-                          top: 8,
+                          bottom: 40,
                           child: Material(
                             elevation: 3,
                             color: Theme.of(context).colorScheme.surface,
                             borderRadius: BorderRadius.circular(16),
-                            child: Row(
-                              children: [
-                                IconButton(
-                                  tooltip: '返回书架',
-                                  onPressed: () => Navigator.pop(context),
-                                  icon: const ReaderIcon(ReaderGlyph.back),
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    book.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: '搜索正文',
-                                  onPressed: showSearch,
-                                  icon: const ReaderIcon(ReaderGlyph.search),
-                                ),
-                                IconButton(
-                                  tooltip: '添加 / 移除书签',
-                                  onPressed: toggleBookmark,
-                                  icon: ReaderIcon(
-                                    book.bookmarks.any(
-                                          (m) =>
-                                              m.offset ==
-                                              _sourceOffset(
-                                                current?.start ?? anchor,
-                                              ),
-                                        )
-                                        ? ReaderGlyph.bookmark
-                                        : ReaderGlyph.bookmarkOutline,
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: '设置',
-                                  onPressed: widget.openSettings,
-                                  icon: const ReaderIcon(ReaderGlyph.settings),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      Positioned(
-                        key: const ValueKey('reading-bottom-controls'),
-                        left: 12,
-                        right: 12,
-                        bottom: 40,
-                        child: Material(
-                          elevation: 3,
-                          color: Theme.of(context).colorScheme.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (_preview != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 12),
-                                    child: Text(
-                                      _preview!.locationLabel,
-                                      key: const ValueKey('preview-location'),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.labelMedium,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (_preview != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 12),
+                                      child: Text(
+                                        _preview!.locationLabel,
+                                        key: const ValueKey('preview-location'),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.labelMedium,
+                                      ),
                                     ),
+                                  Slider(
+                                    key: const ValueKey('reading-seek-slider'),
+                                    value: _sliderFraction(),
+                                    onChangeStart: (_) => _startPreview(),
+                                    onChanged: arranging || model.locked
+                                        ? null
+                                        : _seekPreview,
+                                    onChangeEnd: (_) => _preview?.flush(),
                                   ),
-                                Slider(
-                                  key: const ValueKey('reading-seek-slider'),
-                                  value: _sliderFraction(),
-                                  onChangeStart: (_) => _startPreview(),
-                                  onChanged: arranging || model.locked
-                                      ? null
-                                      : _seekPreview,
-                                  onChangeEnd: (_) => _preview?.flush(),
-                                ),
-                                if (_preview != null)
-                                  Row(
-                                    children: [
-                                      IconButton(
-                                        key: const ValueKey('preview-previous'),
-                                        tooltip: '预览上一页',
-                                        onPressed: _preview!.canPrevious
-                                            ? () => _preview?.step(false)
-                                            : null,
-                                        icon: const ReaderIcon(
-                                          ReaderGlyph.back,
-                                        ),
-                                      ),
-                                      IconButton(
-                                        key: const ValueKey('preview-next'),
-                                        tooltip: '预览下一页',
-                                        onPressed: _preview!.canNext
-                                            ? () => _preview?.step(true)
-                                            : null,
-                                        icon: const ReaderIcon(
-                                          ReaderGlyph.chevronRight,
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: FilledButton(
+                                  if (_preview != null)
+                                    Row(
+                                      children: [
+                                        IconButton(
                                           key: const ValueKey(
-                                            'confirm-page-preview',
+                                            'preview-previous',
                                           ),
-                                          onPressed: _preview!.ready
-                                              ? _confirmPreview
+                                          tooltip: '预览上一页',
+                                          onPressed: _preview!.canPrevious
+                                              ? () => _preview?.step(false)
                                               : null,
-                                          child: const Text('阅读此页'),
+                                          icon: const ReaderIcon(
+                                            ReaderGlyph.back,
+                                          ),
                                         ),
-                                      ),
-                                      IconButton(
-                                        tooltip: '预览回到原阅读页',
-                                        onPressed: () =>
-                                            _preview?.returnToOrigin(),
-                                        icon: const ReaderIcon(
-                                          ReaderGlyph.restore,
+                                        IconButton(
+                                          key: const ValueKey('preview-next'),
+                                          tooltip: '预览下一页',
+                                          onPressed: _preview!.canNext
+                                              ? () => _preview?.step(true)
+                                              : null,
+                                          icon: const ReaderIcon(
+                                            ReaderGlyph.chevronRight,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  )
-                                else
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceEvenly,
-                                    children: [
-                                      TextButton.icon(
-                                        onPressed: () => _contents(),
-                                        icon: const ReaderIcon(
-                                          ReaderGlyph.list,
-                                          size: 18,
+                                        Expanded(
+                                          child: FilledButton(
+                                            key: const ValueKey(
+                                              'confirm-page-preview',
+                                            ),
+                                            onPressed: _preview!.ready
+                                                ? _confirmPreview
+                                                : null,
+                                            child: const Text('阅读此页'),
+                                          ),
                                         ),
-                                        label: const Text('目录'),
-                                      ),
-                                      TextButton.icon(
-                                        onPressed: () =>
-                                            _contents(bookmarks: true),
-                                        icon: const ReaderIcon(
-                                          ReaderGlyph.bookmarks,
-                                          size: 18,
+                                        IconButton(
+                                          tooltip: '预览回到原阅读页',
+                                          onPressed: () =>
+                                              _preview?.returnToOrigin(),
+                                          icon: const ReaderIcon(
+                                            ReaderGlyph.restore,
+                                          ),
                                         ),
-                                        label: const Text('书签'),
-                                      ),
-                                      IconButton(
-                                        tooltip: '收起工具',
-                                        onPressed: () =>
-                                            setState(() => controls = false),
-                                        icon: const ReaderIcon(
-                                          ReaderGlyph.down,
+                                      ],
+                                    )
+                                  else
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceEvenly,
+                                      children: [
+                                        TextButton.icon(
+                                          onPressed: () => _contents(),
+                                          icon: const ReaderIcon(
+                                            ReaderGlyph.list,
+                                            size: 18,
+                                          ),
+                                          label: const Text('目录'),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                              ],
+                                        TextButton.icon(
+                                          onPressed: () =>
+                                              _contents(bookmarks: true),
+                                          icon: const ReaderIcon(
+                                            ReaderGlyph.bookmarks,
+                                            size: 18,
+                                          ),
+                                          label: const Text('书签'),
+                                        ),
+                                        IconButton(
+                                          tooltip: '收起工具',
+                                          onPressed: () =>
+                                              setState(() => controls = false),
+                                          icon: const ReaderIcon(
+                                            ReaderGlyph.down,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),

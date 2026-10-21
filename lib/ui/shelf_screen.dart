@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../domain/models.dart';
 import 'app_model.dart';
 import 'core/reader_icon.dart';
+import 'wifi_upload_screen.dart';
 
 class ShelfScreen extends StatefulWidget {
   const ShelfScreen({
@@ -123,12 +124,27 @@ class _ShelfScreenState extends State<ShelfScreen> {
                                 FilledButton.icon(
                                   onPressed: widget.model.busy
                                       ? null
-                                      : () => widget.model.importBooks(),
+                                      : () {
+                                          if (Platform.isIOS) {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute<void>(
+                                                builder: (_) =>
+                                                    WifiUploadScreen(
+                                                      model: widget.model,
+                                                    ),
+                                              ),
+                                            );
+                                          } else {
+                                            widget.model.importBooks();
+                                          }
+                                        },
                                   icon: const ReaderIcon(
                                     ReaderGlyph.add,
                                     size: 18,
                                   ),
-                                  label: const Text('导入书籍'),
+                                  label: Text(
+                                    Platform.isIOS ? 'Wi-Fi 上传书籍' : '导入书籍',
+                                  ),
                                 ),
                               ],
                             );

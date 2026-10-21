@@ -23,6 +23,7 @@ class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var pendingResult: MethodChannel.Result? = null
     private var selectingFont = false
+    private var selectingImages = false
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var destroyed = false
@@ -35,16 +36,17 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "supportPath" -> result.success(filesDir.absolutePath)
                     "readingMode" -> result.success(null)
-                    "pick" -> {
+                    "pick", "pickImages" -> {
                         if (pendingResult != null) {
                             result.error("busy", "文件选择器已打开", null)
                         } else {
                             pendingResult = result
                             try {
                                 selectingFont = call.argument<Boolean>("font") == true
+                                selectingImages = call.method == "pickImages"
                                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                                     addCategory(Intent.CATEGORY_OPENABLE)
-                                    type = "*/*"
+                                    type = if (selectingImages) "image/*" else "*/*"
                                     putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                                 }
                                 @Suppress("DEPRECATION")

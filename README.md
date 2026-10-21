@@ -1,16 +1,18 @@
 # 阅读
 
-面向 Android 与 macOS 的本地电子书阅读器。阅读页只保留正文和进度；独立设置页集中管理外观、排版和密码。
+面向 Android、macOS 与 iOS 的本地电子书阅读器。阅读页只保留正文和进度；独立设置页集中管理外观、排版和密码。
 
 ## 功能
 
 - TXT（UTF-8、UTF-16 BOM、GBK）、EPUB、MOBI / AZW / AZW3、HTML 可重排文字阅读。
 - 本地书架、书名/作者搜索、排序、导入去重、阅读进度、目录、书签和全文搜索。
-- 横向覆盖翻页，可关闭动画；支持触屏、方向键、空格、Page Up / Down、滚轮。
+- 九种翻页动画及无动画选项，支持文字粒子消散与方向感开关、单页进度预览；支持触屏、方向键、空格、Page Up / Down、滚轮。
+- 八套内置阅读配色、多照片背景、每 1–1000 次正式翻页轮换、0–100% 深色遮罩；自定义字体色与背景色分别保留历史。
 - 深色、浅色、跟随系统；批量导入 TTF / OTF，持久化字体列表并随时切换；调整字号、行间距、字间距、段间距、颜色。
 - macOS 标题栏磨砂、正文可完全透明、统一圆角、任意缩放与窗口尺寸恢复；在应用菜单“设置…”（⌘,）调整背景不透明度，0% 时阅读背景完全透明。
 - 四位数字密码与固定数字键盘；PBKDF2 校验、错误次数限制；macOS 最小化保持解锁，重新启动或手动锁定时验证密码，Android 后台返回重新锁定。
 - 文件面板使用 Android SAF 和 macOS NSOpenPanel，文件复制入应用存储后可持续离线读取。
+- iOS 使用系统照片选择器；书籍和字体通过前台 Wi-Fi 上传页批量导入。iOS 最低版本 14，Wi-Fi 上传入口也可在 Android/macOS 设置中使用。
 
 ## 格式边界
 
@@ -26,11 +28,26 @@
 
 ## 构建与下载
 
-GitHub Actions 的 `Build Reader` 在 main 推送和手动触发时运行：静态检查 → 格式/存储/分页/响应式测试 → Android Release APK 与 macOS 通用 DMG/ZIP → `preview` 预发布。
+GitHub Actions 的 `Build Reader` 在 main 推送和手动触发时运行：静态检查 → 格式/存储/分页/响应式/上传协议测试 → Android Release APK、macOS 通用 DMG/ZIP、iOS 未签名 IPA → `preview` 预发布。
 
 [测试版下载](https://github.com/roy-xiong/reader/releases/tag/preview)
 
-Android 当前使用测试签名，CI 缓存测试密钥以便连续覆盖安装。缓存被清理后签名可能变化。macOS 使用 ad-hoc 签名，未做 Apple 公证。
+Android 当前使用测试签名，构建间签名可能变化。本机调试版使用独立的 `.debug` 包名。macOS 使用 ad-hoc 签名，未做 Apple 公证。iOS IPA 尚未签名，安装前需要用自己的 Apple 证书和描述文件签名；平台编译通过不等于已在 iPhone/iPad 真机验证。
+
+## 照片、配色与 Wi-Fi 上传
+
+设置中可一键应用纸白、羊皮纸、柔和灰、竹青、雾蓝、深海、墨色、午夜配色。配色参考 [Readwise Reader 的阅读主题](https://docs.readwise.io/reader/docs/faqs/appearance) 和 [Apple Books 的主题设置](https://support.apple.com/guide/iphone/read-books-iphc1af7c57/ios)，本应用独立定义文字与底色色值。
+
+背景照片复制入应用存储，并缩至最长边 2048 以控制解码内存。成功的前后翻页累计轮换次数；目录、搜索和滑动进度预览不累计。选择纯色主题可切回纯色，已导入照片继续保留。
+
+Wi-Fi 上传参考 [Documents 的电脑传输流程](https://support.readdle.com/documents/getting-started/add-files-to-documents)：
+
+1. 本机与电脑连接同一 Wi-Fi，在阅读器打开“Wi-Fi 上传”并启动。
+2. 在电脑浏览器输入传输页显示的地址，再输入本次六位传输码。
+3. 批量选择或拖入书籍、字体，网页会显示进度及每个文件的导入结果。
+4. 字体上传后在设置的字体列表中选择。请保持传输页在前台，离开或切到后台后服务关闭。
+
+传输网页不加载外部资源，文件直接写入本机仓库。临时会话仅提供认证和上传，采用文件流处理大字体；书籍仍限制 64 MB。
 
 ## 本地开发
 
@@ -51,6 +68,7 @@ flutter build apk --release
 - `lib/ui`：应用模型、书架、阅读、设置与锁屏。
 - `android`：Kotlin 系统选择器与后台文件复制。
 - `macos`：Swift 透明窗口、原生菜单与沙盒文件面板。
+- `ios`：Swift 场景入口、系统照片选择器；书籍和字体经共享 Flutter 局域网上传服务导入。
 
 ## 开源许可
 

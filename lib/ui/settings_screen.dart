@@ -7,6 +7,8 @@ import 'app_model.dart';
 import 'core/reader_icon.dart';
 import 'lock_screen.dart';
 import 'page_effect_demo.dart';
+import 'appearance_settings.dart';
+import 'wifi_upload_screen.dart';
 
 /// 独立设置页。背景透明度和所有排版选项集中于此，阅读页保持简洁。
 class SettingsScreen extends StatelessWidget {
@@ -68,19 +70,33 @@ class SettingsScreen extends StatelessWidget {
                     context,
                     '字体颜色',
                     s.textColor,
-                    (color) => update(s.copyWith(textColor: color)),
+                    model.setTextColor,
+                    history: model.textColors,
                   ),
                   _color(
                     context,
                     '背景颜色',
                     s.backgroundColor,
-                    (color) => update(s.copyWith(backgroundColor: color)),
+                    model.setBackgroundColor,
+                    history: model.backgroundColors,
                   ),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: TextButton(
                       onPressed: () => update(s.copyWith(resetColors: true)),
                       child: const Text('恢复主题默认颜色'),
+                    ),
+                  ),
+                  AppearanceSettings(model: model),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Wi-Fi 上传书籍和字体'),
+                    subtitle: const Text('在同一 Wi-Fi 下，用电脑浏览器批量传入'),
+                    trailing: const ReaderIcon(ReaderGlyph.chevronRight),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => WifiUploadScreen(model: model),
+                      ),
                     ),
                   ),
                   _section(context, '字体与排版'),
@@ -118,7 +134,22 @@ class SettingsScreen extends StatelessWidget {
                     children: [
                       Expanded(child: Text('已导入字体（${model.fonts.length}）')),
                       OutlinedButton(
-                        onPressed: model.busy ? null : model.importFont,
+                        onPressed: model.busy
+                            ? null
+                            : () {
+                                if (Platform.isIOS) {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => WifiUploadScreen(
+                                        model: model,
+                                        kind: 'font',
+                                      ),
+                                    ),
+                                  );
+                                } else {
+                                  model.importFont();
+                                }
+                              },
                         child: const Text('导入字体'),
                       ),
                     ],
@@ -303,7 +334,7 @@ class SettingsScreen extends StatelessWidget {
                   _section(context, '关于 Reader'),
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('阅读 1.2.1'),
+                    title: Text('阅读 1.3.0'),
                     subtitle: Text(
                       '本地书架 · 离线阅读\n支持 TXT、EPUB、MOBI、AZW / AZW3、HTML 的可重排文字。\n受 DRM 保护、纯图片和扫描版电子书暂不支持。',
                     ),
@@ -315,7 +346,7 @@ class SettingsScreen extends StatelessWidget {
                     onTap: () => showLicensePage(
                       context: context,
                       applicationName: '阅读',
-                      applicationVersion: '1.2.1',
+                      applicationVersion: '1.3.0',
                       applicationLegalese: 'GPL-3.0-or-later',
                     ),
                   ),
@@ -375,8 +406,9 @@ class SettingsScreen extends StatelessWidget {
     BuildContext context,
     String title,
     int? value,
-    ValueChanged<int> change,
-  ) => ListTile(
+    ValueChanged<int> change, {
+    List<int> history = const [],
+  }) => ListTile(
     contentPadding: EdgeInsets.zero,
     title: Text(title),
     subtitle: Text(
@@ -401,7 +433,7 @@ class SettingsScreen extends StatelessWidget {
           onPressed: () async {
             final picked = await showDialog<int>(
               context: context,
-              builder: (_) => _ColorDialog(initial: value),
+              builder: (_) => _ColorDialog(initial: value, history: history),
             );
             if (picked != null) {
               change(picked);
@@ -415,8 +447,9 @@ class SettingsScreen extends StatelessWidget {
 }
 
 class _ColorDialog extends StatefulWidget {
-  const _ColorDialog({this.initial});
+  const _ColorDialog({this.initial, this.history = const []});
   final int? initial;
+  final List<int> history;
   @override
   State<_ColorDialog> createState() => _ColorDialogState();
 }
@@ -451,40 +484,79 @@ class _ColorDialogState extends State<_ColorDialog> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children:
-                [
-                      0xfff7f5ef,
-                      0xfff0e6cf,
-                      0xffcee1d1,
-                      0xffd4e1ed,
-                      0xff171c1b,
-                      0xff252525,
-                      0xff111111,
-                      0xffffffff,
-                      0xffe1d8c6,
-                      0xffbad6cb,
-                    ]
-                    .map(
-                      (color) => InkWell(
-                        onTap: () => Navigator.pop(context, color),
-                        borderRadius: BorderRadius.circular(24),
-                        child: Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: Color(color),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.grey.withValues(alpha: .5),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 220),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children:
+                        [
+                              0xfff7f5ef,
+                              0xfff0e6cf,
+                              0xffcee1d1,
+                              0xffd4e1ed,
+                              0xff171c1b,
+                              0xff252525,
+                              0xff111111,
+                              0xffffffff,
+                              0xffe1d8c6,
+                              0xffbad6cb,
+                            ]
+                            .map(
+                              (color) => InkWell(
+                                onTap: () => Navigator.pop(context, color),
+                                borderRadius: BorderRadius.circular(24),
+                                child: Container(
+                                  width: 38,
+                                  height: 38,
+                                  decoration: BoxDecoration(
+                                    color: Color(color),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.grey.withValues(alpha: .5),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                  ),
+                  if (widget.history.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('我的自定义颜色'),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        for (final color in widget.history)
+                          InkWell(
+                            key: ValueKey('saved-color-$color'),
+                            onTap: () => Navigator.pop(context, color),
+                            child: Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: Color(color),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.grey.withValues(alpha: .5),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                    )
-                    .toList(),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 24),
           TextField(

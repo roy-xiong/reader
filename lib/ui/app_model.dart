@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,12 +10,29 @@ import '../data/font_service.dart';
 import '../data/platform_service.dart';
 import '../domain/models.dart';
 import '../domain/book_relocation.dart';
+import '../domain/reading_appearance.dart';
+import '../data/background_image_service.dart';
 
 /// 应用状态的唯一写入口。界面仅观察状态，持久化操作始终经过仓库串行队列。
 class AppModel extends ChangeNotifier {
-  AppModel(this.repository, this.platform, {FontService? fontService})
-    : fontService = fontService ?? FontService();
+  AppModel(
+    this.repository,
+    this.platform, {
+    FontService? fontService,
+    BackgroundImageService? imageService,
+  }) : fontService = fontService ?? FontService(),
+       imageService = imageService ?? BackgroundImageService();
   final FontService fontService;
+  final BackgroundImageService imageService;
+  List<BackgroundPhoto> _photos = [];
+  List<int> _textColors = [], _backgroundColors = [];
+  List<BackgroundPhoto> get photos => List.unmodifiable(_photos);
+  List<int> get textColors => List.unmodifiable(_textColors);
+  List<int> get backgroundColors => List.unmodifiable(_backgroundColors);
+  BackgroundPhoto? get currentPhoto =>
+      settings.backgroundMode != 'photos' || _photos.isEmpty
+      ? null
+      : _photos[settings.photoIndex % _photos.length];
   final Set<String> _registeredFonts = {};
   List<ReaderFont> _fonts = [];
   List<ReaderFont> get fonts => List.unmodifiable(_fonts);
@@ -46,6 +64,18 @@ class AppModel extends ChangeNotifier {
       _books = (data['books'] as List)
           .map((b) => BookRecord.fromJson(Map<String, dynamic>.from(b as Map)))
           .toList();
+      _photos = (data['photos'] as List? ?? [])
+          .map(
+            (value) => BackgroundPhoto.fromJson(
+              Map<String, dynamic>.from(value as Map),
+            ),
+          )
+          .toList();
+      _textColors = _readColors(data['textColors']);
+      _backgroundColors = _readColors(data['backgroundColors']);
+      // 旧版单独设置过的颜色也迁入可选历史，不因升级或切换主题丢失。
+      _rememberColor(_textColors, settings.textColor);
+      _rememberColor(_backgroundColors, settings.backgroundColor);
       _pin = data['pin'] == null
           ? null
           : Map<String, dynamic>.from(data['pin'] as Map);
@@ -74,7 +104,10 @@ class AppModel extends ChangeNotifier {
   }
 
   Map<String, dynamic> snapshot() => {
-    'version': 2,
+    'version': 3,
+    'photos': _photos.map((photo) => photo.toJson()).toList(),
+    'textColors': _textColors,
+    'backgroundColors': _backgroundColors,
     'fonts': _fonts.map((f) => f.toJson()).toList(),
     'settings': settings.toJson(),
     'books': _books.map((b) => b.toJson()).toList(),
@@ -262,6 +295,207 @@ class AppModel extends ChangeNotifier {
     }
     changed();
     _scheduleSave();
+  }
+
+  static List<int> _readColors(dynamic value) => value is List
+      ? value
+            .whereType<int>()
+            .map((color) => 0xff000000 | (color & 0xffffff))
+            .toSet()
+            .toList()
+      : [];
+
+  static void _rememberColor(List<int> colors, int? value) {
+    if (value == null) {
+      return;
+    }
+    final color = 0xff000000 | (value & 0xffffff);
+    colors.remove(color);
+    colors.insert(0, color);
+  }
+
+  void setTextColor(int color) {
+    _rememberColor(_textColors, settings.textColor);
+    _rememberColor(_textColors, color);
+    updateSettings(settings.copyWith(textColor: color));
+  }
+
+  void setBackgroundColor(int color) {
+    _rememberColor(_backgroundColors, settings.backgroundColor);
+    _rememberColor(_backgroundColors, color);
+    updateSettings(
+      settings.copyWith(backgroundColor: color, backgroundMode: 'color'),
+    );
+  }
+
+  void applyPalette(ReadingPalette palette) {
+    _rememberColor(_textColors, settings.textColor);
+    _rememberColor(_backgroundColors, settings.backgroundColor);
+    updateSettings(
+      settings.copyWith(
+        textColor: palette.text,
+        backgroundColor: palette.background,
+        backgroundMode: 'color',
+      ),
+    );
+  }
+
+  /// 仅正式前后翻页调用。目录、搜索、进度预览和书首书尾的无效操作不累计。
+  void recordPageTurn() {
+    if (currentPhoto == null) {
+      return;
+    }
+    final turns = settings.photoTurns + 1;
+    final switchPhoto = turns >= settings.photoTurnInterval;
+    updateSettings(
+      settings.copyWith(
+        photoTurns: switchPhoto ? 0 : turns,
+        photoIndex: switchPhoto
+            ? (settings.photoIndex + 1) % _photos.length
+            : settings.photoIndex,
+      ),
+    );
+  }
+
+  void selectPhoto(int index) {
+    if (index < 0 || index >= _photos.length) {
+      return;
+    }
+    updateSettings(
+      settings.copyWith(
+        backgroundMode: 'photos',
+        photoIndex: index,
+        photoTurns: 0,
+      ),
+    );
+  }
+
+  Future<void> importPhotos() async {
+    if (busy || locked) {
+      return;
+    }
+    busy = true;
+    busyLabel = '选择背景照片';
+    changed();
+    var paths = <String>[];
+    var imported = 0;
+    final failures = <String>[];
+    try {
+      paths = await platform.pickImages();
+      for (var i = 0; i < paths.length; i++) {
+        busyLabel = '导入照片 ${i + 1}/${paths.length}';
+        changed();
+        try {
+          final bytes = await imageService.normalize(File(paths[i]));
+          final photo = await repository.storeBackground(
+            bytes,
+            p.basename(paths[i]).replaceFirst(RegExp(r'^[a-f0-9-]{36}_'), ''),
+          );
+          imported++;
+          if (!_photos.any((item) => item.id == photo.id)) {
+            _photos = [..._photos, photo];
+          }
+        } catch (_) {
+          failures.add(p.basename(paths[i]));
+        }
+      }
+      if (_photos.isNotEmpty && imported > 0) {
+        settings = settings.copyWith(
+          backgroundMode: 'photos',
+          photoIndex: settings.photoIndex % _photos.length,
+          photoTurns: 0,
+        );
+        await flush();
+      }
+      if (failures.isNotEmpty) {
+        error = '部分照片无法读取：${failures.take(3).join('、')}';
+      }
+    } catch (e) {
+      error = _message(e);
+    } finally {
+      busy = false;
+      busyLabel = null;
+      await platform.discard(paths);
+      changed();
+    }
+  }
+
+  Future<void> removePhoto(String id) async {
+    if (busy || locked) {
+      return;
+    }
+    final previous = _photos, previousSettings = settings;
+    busy = true;
+    var saved = false;
+    final active = currentPhoto?.id;
+    _photos = _photos.where((photo) => photo.id != id).toList();
+    final selected = _photos.indexWhere((photo) => photo.id == active);
+    settings = settings.copyWith(
+      backgroundMode: _photos.isEmpty ? 'color' : settings.backgroundMode,
+      photoIndex: selected < 0 ? 0 : selected,
+      photoTurns: 0,
+    );
+    changed();
+    try {
+      await flush();
+      saved = true;
+      final file = repository.backgroundFile(id);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      if (!saved) {
+        _photos = previous;
+        settings = previousSettings;
+      }
+      error = _message(e);
+    } finally {
+      busy = false;
+      changed();
+    }
+  }
+
+  /// Wi-Fi 传输完成后走相同仓库入口。字体先保存到目录，用户按需切换，不批量加载到内存。
+  Future<String> importTransferredFile(String path, String kind) async {
+    if (busy || locked || _disposed) {
+      throw const FormatException('请保持阅读器解锁，并等待当前导入完成');
+    }
+    if (!['book', 'font'].contains(kind)) {
+      throw const FormatException('上传类型无效');
+    }
+    busy = true;
+    busyLabel = '正在导入 ${p.basename(path)}';
+    changed();
+    try {
+      final String name;
+      if (kind == 'font') {
+        final id = await repository.importFont(path);
+        name = p.basenameWithoutExtension(path);
+        if (!_fonts.any((font) => font.id == id)) {
+          _fonts = [
+            ..._fonts,
+            ReaderFont(
+              id: id,
+              name: name,
+              bytes: await repository.fontFile(id).length(),
+              importedAt: DateTime.now().millisecondsSinceEpoch,
+            ),
+          ];
+        }
+      } else {
+        final book = await repository.import(path);
+        name = book.title;
+        if (!_books.any((item) => item.id == book.id)) {
+          _books = [..._books, book];
+        }
+      }
+      await flush();
+      return name;
+    } finally {
+      busy = false;
+      busyLabel = null;
+      changed();
+    }
   }
 
   /// 多文件导入先记录字体目录，只加载最后一个选中的字体，避免批量占用内存。

@@ -17,6 +17,11 @@ class ReaderSettings {
     this.fontName,
     this.pageEffect = 'cover',
     this.particleDirectional = false,
+    this.backgroundMode = 'color',
+    this.photoDim = .45,
+    this.photoTurnInterval = 5,
+    this.photoIndex = 0,
+    this.photoTurns = 0,
     this.scriptMode = 'original',
     this.fontWeight = 400,
   });
@@ -27,6 +32,9 @@ class ReaderSettings {
   final String? fontId, fontName;
   final String pageEffect, scriptMode;
   final bool particleDirectional;
+  final String backgroundMode;
+  final double photoDim;
+  final int photoTurnInterval, photoIndex, photoTurns;
   final double fontWeight;
 
   ReaderSettings copyWith({
@@ -42,6 +50,11 @@ class ReaderSettings {
     String? fontName,
     String? pageEffect,
     bool? particleDirectional,
+    String? backgroundMode,
+    double? photoDim,
+    int? photoTurnInterval,
+    int? photoIndex,
+    int? photoTurns,
     String? scriptMode,
     double? fontWeight,
     bool resetColors = false,
@@ -61,6 +74,11 @@ class ReaderSettings {
     fontName: resetFont ? null : fontName ?? this.fontName,
     pageEffect: pageEffect ?? this.pageEffect,
     particleDirectional: particleDirectional ?? this.particleDirectional,
+    backgroundMode: backgroundMode ?? this.backgroundMode,
+    photoDim: photoDim ?? this.photoDim,
+    photoTurnInterval: photoTurnInterval ?? this.photoTurnInterval,
+    photoIndex: photoIndex ?? this.photoIndex,
+    photoTurns: photoTurns ?? this.photoTurns,
     scriptMode: scriptMode ?? this.scriptMode,
     fontWeight: fontWeight ?? this.fontWeight,
   );
@@ -78,6 +96,11 @@ class ReaderSettings {
     'fontName': fontName,
     'pageEffect': pageEffect,
     'particleDirectional': particleDirectional,
+    'backgroundMode': backgroundMode,
+    'photoDim': photoDim,
+    'photoTurnInterval': photoTurnInterval,
+    'photoIndex': photoIndex,
+    'photoTurns': photoTurns,
     'scriptMode': scriptMode,
     'fontWeight': fontWeight,
   };
@@ -97,6 +120,11 @@ class ReaderSettings {
     fontName: j['fontName'] as String?,
     pageEffect: PageTurnEffect.parse(j['pageEffect']).id,
     particleDirectional: j['particleDirectional'] == true,
+    backgroundMode: j['backgroundMode'] == 'photos' ? 'photos' : 'color',
+    photoDim: _number(j['photoDim'], .45, 0, 1),
+    photoTurnInterval: _number(j['photoTurnInterval'], 5, 1, 1000).round(),
+    photoIndex: _number(j['photoIndex'], 0, 0, 1000000).round(),
+    photoTurns: _number(j['photoTurns'], 0, 0, 1000).round(),
     scriptMode:
         ['original', 'simplified', 'traditional'].contains(j['scriptMode'])
         ? j['scriptMode'] as String

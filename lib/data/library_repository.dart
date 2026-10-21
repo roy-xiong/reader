@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import '../domain/models.dart';
+import '../domain/reading_appearance.dart';
 import 'book_parser.dart';
 import 'font_service.dart';
 
@@ -40,6 +41,9 @@ class LibraryRepository {
         );
         for (final font in map['fonts'] as List? ?? []) {
           ReaderFont.fromJson(Map<String, dynamic>.from(font as Map));
+        }
+        for (final photo in map['photos'] as List? ?? []) {
+          BackgroundPhoto.fromJson(Map<String, dynamic>.from(photo as Map));
         }
         if (map['pin'] != null) {
           PinService.validateRecord(
@@ -201,6 +205,26 @@ class LibraryRepository {
       throw const FormatException('字体标识无效');
     }
     return File(p.join(root.path, 'fonts', '$id.ttf'));
+  }
+
+  /// 已缩小的照片按内容去重，落盘完成后才把记录加入书架快照。
+  Future<BackgroundPhoto> storeBackground(List<int> bytes, String name) async {
+    final digest = await Isolate.run(() => sha256.convert(bytes).toString());
+    final file = backgroundFile(digest);
+    await file.parent.create(recursive: true);
+    if (!await file.exists()) {
+      final temp = File('${file.path}.tmp');
+      await temp.writeAsBytes(bytes, flush: true);
+      await temp.rename(file.path);
+    }
+    return BackgroundPhoto(id: digest, name: name, bytes: bytes.length);
+  }
+
+  File backgroundFile(String id) {
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(id)) {
+      throw const FormatException('背景照片标识无效');
+    }
+    return File(p.join(root.path, 'backgrounds', '$id.png'));
   }
 }
 

@@ -19,6 +19,9 @@ class PlatformService {
       }) ??
       [];
 
+  Future<List<String>> pickImages() async =>
+      await channel.invokeListMethod<String>('pickImages') ?? [];
+
   /// 清理原生选择器产生的缓存副本；原生层再次校验目录边界。
   Future<void> discard(List<String> paths) async {
     if (paths.isEmpty) {

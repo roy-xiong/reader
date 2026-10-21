@@ -102,6 +102,8 @@ class MainFlutterWindow: NSWindow {
         let args = call.arguments as? [String: Any]
         self.pick(folder: args?["folder"] as? Bool ?? false,
           font: args?["font"] as? Bool ?? false, result: result)
+      case "pickImages":
+        self.pick(folder: false, font: false, images: true, result: result)
       case "discard":
         let paths = call.arguments as? [String] ?? []
         self.fileQueue.async {
@@ -172,15 +174,15 @@ class MainFlutterWindow: NSWindow {
   @objc private func lockApp(_ sender: Any?) { bridge?.invokeMethod("lockApp", arguments: nil) }
 
   /// 选择后立即在授权有效期间复制文件，重启后不再依赖临时的沙盒授权。
-  private func pick(folder: Bool, font: Bool, result: @escaping FlutterResult) {
+  private func pick(folder: Bool, font: Bool, images: Bool = false, result: @escaping FlutterResult) {
     guard !choosing else { result(FlutterError(code: "busy", message: "文件面板已打开", details: nil)); return }
     choosing = true
     let panel = NSOpenPanel()
-    panel.title = font ? "选择字体" : (folder ? "选择电子书文件夹" : "导入电子书")
+    panel.title = images ? "选择阅读背景照片" : (font ? "选择字体" : (folder ? "选择电子书文件夹" : "导入电子书"))
     panel.canChooseDirectories = folder
     panel.canChooseFiles = !folder
     panel.allowsMultipleSelection = !folder
-    let extensions = font ? ["ttf", "otf"] : ["txt", "epub", "mobi", "azw", "azw3", "html", "htm"]
+    let extensions = images ? ["jpg", "jpeg", "png", "webp", "bmp", "gif"] : (font ? ["ttf", "otf"] : ["txt", "epub", "mobi", "azw", "azw3", "html", "htm"])
     if !folder { panel.allowedFileTypes = extensions }
     panel.beginSheetModal(for: self) { [weak self] response in
       guard let self = self else { result(nil); return }
