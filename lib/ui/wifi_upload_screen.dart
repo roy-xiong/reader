@@ -6,9 +6,8 @@ import 'app_model.dart';
 
 /// 前台 Wi-Fi 传输页。退出、锁定、进入后台时关闭监听和临时会话。
 class WifiUploadScreen extends StatefulWidget {
-  const WifiUploadScreen({super.key, required this.model, this.kind = 'book'});
+  const WifiUploadScreen({super.key, required this.model});
   final AppModel model;
-  final String kind;
   @override
   State<WifiUploadScreen> createState() => _WifiUploadScreenState();
 }
@@ -126,7 +125,7 @@ class _WifiUploadScreenState extends State<WifiUploadScreen>
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 12),
-              const Text('电脑和本机连接同一 Wi-Fi，在电脑浏览器打开下方地址，再输入传输码即可批量上传。'),
+              const Text('电脑和本机连接同一 Wi-Fi，在浏览器打开下方地址即可批量上传，无需传输码。'),
               const SizedBox(height: 12),
               const Text('请保持本页在前台。离开本页、锁屏或切到后台后，传输会停止。'),
               const SizedBox(height: 24),
@@ -151,26 +150,13 @@ class _WifiUploadScreenState extends State<WifiUploadScreen>
                         for (final url in server!.urls)
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: SelectableText('$url/?kind=${widget.kind}'),
+                            title: SelectableText(url),
                             trailing: TextButton(
-                              onPressed: () => Clipboard.setData(
-                                ClipboardData(
-                                  text: '$url/?kind=${widget.kind}',
-                                ),
-                              ),
+                              onPressed: () =>
+                                  Clipboard.setData(ClipboardData(text: url)),
                               child: const Text('复制'),
                             ),
                           ),
-                        const SizedBox(height: 12),
-                        const Text('本次传输码'),
-                        SelectableText(
-                          server.code,
-                          style: const TextStyle(
-                            fontSize: 34,
-                            letterSpacing: 8,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                       ],
                     ),
                   ),

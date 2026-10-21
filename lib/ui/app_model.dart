@@ -43,6 +43,10 @@ class AppModel extends ChangeNotifier {
   late final CloudSyncController cloud;
   final FontService fontService;
   final BackgroundImageService imageService;
+  // 来源按类型和内容标识保存；下载后的文件虽然在本机，也不等于本机导入。
+  Map<String, String> _assetOrigins = {};
+  void _noteLocalAsset(String kind, String id) =>
+      _assetOrigins.putIfAbsent('$kind/$id', () => 'local');
   List<BackgroundPhoto> _photos = [];
   List<BackgroundPhotoGroup> _photoGroups = [];
   List<BackgroundPhotoGroup> get photoGroups => List.unmodifiable(_photoGroups);
@@ -97,6 +101,18 @@ class AppModel extends ChangeNotifier {
   Future<void> initialize() async {
     final data = await repository.load();
     if (data != null) {
+      final origins = data['assetOrigins'];
+      if (origins is Map) {
+        _assetOrigins = {
+          for (final entry in origins.entries)
+            if (entry.key is String &&
+                RegExp(
+                  r'^(book|font|photo)/[a-f0-9]{64}$',
+                ).hasMatch(entry.key as String) &&
+                ['local', 'cloud'].contains(entry.value))
+              entry.key as String: entry.value as String,
+        };
+      }
       settings = ReaderSettings.fromJson(
         Map<String, dynamic>.from(data['settings'] as Map),
       );
@@ -161,7 +177,8 @@ class AppModel extends ChangeNotifier {
   }
 
   Map<String, dynamic> snapshot() => {
-    'version': 4,
+    'version': 5,
+    'assetOrigins': Map<String, String>.of(_assetOrigins),
     'photoGroups': _photoGroups.map((group) => group.toJson()).toList(),
     'photos': _photos.map((photo) => photo.toJson()).toList(),
     'textColors': _textColors,
@@ -213,6 +230,7 @@ class AppModel extends ChangeNotifier {
         changed();
         try {
           final book = await repository.import(paths[i]);
+          _noteLocalAsset('book', book.id);
           if (!_books.any((b) => b.id == book.id)) {
             _books = [..._books, book];
             imported++;
@@ -349,12 +367,14 @@ class AppModel extends ChangeNotifier {
       return;
     }
     final previous = _books;
+    final origin = _assetOrigins.remove('book/$id');
     _books = _books.where((b) => b.id != id).toList();
     changed();
     try {
       await flush();
     } catch (_) {
       _books = previous;
+      if (origin != null) _assetOrigins['book/$id'] = origin;
       changed();
       rethrow;
     }
@@ -547,6 +567,7 @@ class AppModel extends ChangeNotifier {
             bytes,
             p.basename(paths[i]).replaceFirst(RegExp(r'^[a-f0-9-]{36}_'), ''),
           );
+          _noteLocalAsset('photo', photo.id);
           imported++;
           addedIds.add(photo.id);
           if (!_photos.any((item) => item.id == photo.id)) {
@@ -602,6 +623,7 @@ class AppModel extends ChangeNotifier {
     }
     final previous = _photos, previousSettings = settings;
     final previousGroups = _photoGroups;
+    final origin = _assetOrigins.remove('photo/$id');
     busy = true;
     var saved = false;
     final active = currentPhoto?.id;
@@ -634,6 +656,7 @@ class AppModel extends ChangeNotifier {
     } catch (e) {
       if (!saved) {
         _photos = previous;
+        if (origin != null) _assetOrigins['photo/$id'] = origin;
         _photoGroups = previousGroups;
         settings = previousSettings;
       }
@@ -659,6 +682,7 @@ class AppModel extends ChangeNotifier {
       final String name;
       if (kind == 'font') {
         final id = await repository.importFont(path);
+        _noteLocalAsset('font', id);
         name = p.basenameWithoutExtension(path);
         if (!_fonts.any((font) => font.id == id)) {
           _fonts = [
@@ -673,6 +697,7 @@ class AppModel extends ChangeNotifier {
         }
       } else {
         final book = await repository.import(path);
+        _noteLocalAsset('book', book.id);
         name = book.title;
         if (!_books.any((item) => item.id == book.id)) {
           _books = [..._books, book];
@@ -702,6 +727,7 @@ class AppModel extends ChangeNotifier {
       for (final path in paths) {
         try {
           final id = await repository.importFont(path);
+          _noteLocalAsset('font', id);
           final record = ReaderFont(
             id: id,
             name: p
@@ -877,8 +903,33 @@ class AppModel extends ChangeNotifier {
 
   /// 资源只通过设置页主动上传；书目不夹带本地密码或自动应用的阅读位置；书签随手动书籍备份。
   Future<List<CloudSource>> _cloudSources(String kind) async {
+    // 调用方先刷新云端目录。旧版没有来源字段时，已在云端的内容按已同步资源处理，
+    // 避免升级后把之前下载的文件重新上传；新版本机导入的来源不会被此迁移覆盖。
+    final remoteKeys = cloud.items
+        .map((item) => '${item.kind}/${item.id}')
+        .toSet();
+    var migrated = false;
+    bool local(String id) {
+      final key = '$kind/$id';
+      if (!_assetOrigins.containsKey(key)) {
+        _assetOrigins[key] = remoteKeys.contains(key) ? 'cloud' : 'local';
+        migrated = true;
+      }
+      return _assetOrigins[key] == 'local';
+    }
+
+    final localBooks = kind == 'book'
+        ? _books.where((b) => local(b.id)).toList()
+        : <BookRecord>[];
+    final localFonts = kind == 'font'
+        ? _fonts.where((f) => local(f.id)).toList()
+        : <ReaderFont>[];
+    final localPhotos = kind == 'photo'
+        ? _photos.where((p) => local(p.id)).toList()
+        : <BackgroundPhoto>[];
+    if (migrated) await flush();
     if (kind == 'book') {
-      for (final book in _books) {
+      for (final book in localBooks) {
         if (book.lastOpened > 0) {
           cloud.recordProgress(
             bookId: book.id,
@@ -889,7 +940,7 @@ class AppModel extends ChangeNotifier {
         }
       }
       return [
-        for (final book in _books)
+        for (final book in localBooks)
           CloudSource(
             'book',
             book.id,
@@ -916,7 +967,7 @@ class AppModel extends ChangeNotifier {
     }
     if (kind == 'font') {
       return [
-        for (final font in _fonts)
+        for (final font in localFonts)
           CloudSource(
             'font',
             font.id,
@@ -928,7 +979,7 @@ class AppModel extends ChangeNotifier {
     }
     if (kind == 'photo') {
       return [
-        for (final photo in _photos)
+        for (final photo in localPhotos)
           CloudSource(
             'photo',
             photo.id,
@@ -963,7 +1014,8 @@ class AppModel extends ChangeNotifier {
     final previousBooks = _books,
         previousFonts = _fonts,
         previousPhotos = _photos,
-        previousGroups = _photoGroups;
+        previousGroups = _photoGroups,
+        previousOrigins = Map<String, String>.of(_assetOrigins);
     try {
       final record = Map<String, dynamic>.from(item.metadata['record'] as Map);
       if (record['id'] != item.id) throw const FormatException('资源归属校验失败');
@@ -1032,12 +1084,14 @@ class AppModel extends ChangeNotifier {
           ];
         }
       }
+      _assetOrigins.putIfAbsent('${item.kind}/${item.id}', () => 'cloud');
       await flush();
     } catch (_) {
       _books = previousBooks;
       _fonts = previousFonts;
       _photos = previousPhotos;
       _photoGroups = previousGroups;
+      _assetOrigins = previousOrigins;
       rethrow;
     } finally {
       busy = false;

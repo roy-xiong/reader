@@ -137,7 +137,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    '阅读进度自动上传；打开书籍时按更新时间提示追到云端。书籍、字体和照片均由你主动上传或下载，字号、主题、密码等设置不自动同步。',
+                    '阅读进度自动上传；打开书籍时按更新时间提示追到云端。书籍、字体和照片均由你主动上传或下载。上传本机资源只包含本机导入的文件，云端下载的文件不会混入。字号、主题、密码等设置不自动同步。',
                   ),
                   if (cloud.error != null)
                     Padding(

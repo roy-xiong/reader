@@ -94,6 +94,16 @@ class AppearanceSettings extends StatelessWidget {
               ? '0% 阅读背景完全透明，标题栏保留磨砂效果'
               : '桌面穿透效果在 macOS 版本生效',
         ),
+        SettingsSlider(
+          title: '阅读亮度',
+          value: settings.readingBrightness,
+          min: .1,
+          max: 1,
+          label: '${(settings.readingBrightness * 100).round()}%',
+          onChanged: (v) =>
+              model.updateSettings(settings.copyWith(readingBrightness: v)),
+          subtitle: '仅改变阅读页面明暗，不修改系统亮度。阅读中也可双指上下滑动调节。',
+        ),
         const Divider(height: 32),
         Row(
           children: [

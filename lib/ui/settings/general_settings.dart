@@ -111,7 +111,7 @@ class GeneralSettings extends StatelessWidget {
       children: [
         const ListTile(
           contentPadding: EdgeInsets.zero,
-          title: Text('阅读 1.6.0'),
+          title: Text('阅读 1.7.0'),
           subtitle: Text(
             '本地书架 · 离线阅读\n支持 TXT、EPUB、MOBI、AZW / AZW3、HTML 的可重排文字。\n受 DRM 保护、纯图片和扫描版电子书暂不支持。',
           ),
@@ -123,7 +123,7 @@ class GeneralSettings extends StatelessWidget {
           onTap: () => showLicensePage(
             context: context,
             applicationName: '阅读',
-            applicationVersion: '1.6.0',
+            applicationVersion: '1.7.0',
             applicationLegalese: 'GPL-3.0-or-later',
           ),
         ),

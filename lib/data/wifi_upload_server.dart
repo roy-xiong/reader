@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'package:path/path.dart' as p;
 import 'book_parser.dart';
 import 'wifi_upload_page.dart';
 
 /// 仅在传输页存活的局域网 HTTP 上传入口。流式落盘，不把书籍或大字体整份加载到内存。
-/// 网页先通过临时传输码换取本次会话令牌，不提供书架下载或任意路径访问接口。
+/// 固定端口直接上传，仅允许本地网络、正确 Host 和同源网页；不提供书架下载或任意路径访问。
 class WifiUploadServer {
   WifiUploadServer({required this.importFile, Directory? temporaryDirectory})
     : temporaryDirectory = temporaryDirectory ?? Directory.systemTemp;
@@ -17,9 +16,7 @@ class WifiUploadServer {
   Stream<String> get events => _events.stream;
   HttpServer? _server;
   StreamSubscription<HttpRequest>? _subscription;
-  final _attempts = <String, (DateTime, int)>{};
   Set<String> _hosts = {};
-  String code = '', _token = '';
   List<String> urls = [];
   bool _closed = false, _uploading = false;
   bool get running => _server != null && !_closed;
@@ -36,7 +33,7 @@ class WifiUploadServer {
             (bytes[0] == 169 && bytes[1] == 254));
   }
 
-  Future<void> start({InternetAddress? bindAddress}) async {
+  Future<void> start({InternetAddress? bindAddress, int port = 9900}) async {
     if (_closed) {
       throw StateError('传输会话已关闭');
     }
@@ -67,17 +64,19 @@ class WifiUploadServer {
     if (addresses.isEmpty) {
       throw const FormatException('请先连接 Wi-Fi，再启动传输');
     }
-    final server = await HttpServer.bind(
-      bindAddress ?? InternetAddress.anyIPv4,
-      0,
-    );
+    final HttpServer server;
+    try {
+      server = await HttpServer.bind(
+        bindAddress ?? InternetAddress.anyIPv4,
+        port,
+      );
+    } on SocketException {
+      throw FormatException('无法监听 $port 端口，请停止其他 Wi-Fi 传输或占用该端口的程序后重试');
+    }
     if (_closed) {
       await server.close(force: true);
       return;
     }
-    final random = Random.secure();
-    code = (100000 + random.nextInt(900000)).toString();
-    _token = base64UrlEncode(List.generate(32, (_) => random.nextInt(256)));
     _hosts = addresses.map((address) => '$address:${server.port}').toSet();
     urls = addresses
         .map((address) => 'http://$address:${server.port}')
@@ -140,42 +139,7 @@ class WifiUploadServer {
         response.headers.contentType = ContentType.html;
         response.write(wifiUploadPage);
         await response.close();
-      } else if (request.method == 'POST' && request.uri.path == '/auth') {
-        final key = peer.address, now = DateTime.now();
-        final previous = _attempts[key];
-        final count =
-            previous == null || now.difference(previous.$1).inSeconds >= 60
-            ? 0
-            : previous.$2;
-        if (count >= 8) {
-          await _json(response, 429, {'error': '传输码尝试较多，请稍后重试'});
-          return;
-        }
-        _attempts[key] = (
-          previous == null || count == 0 ? now : previous.$1,
-          count + 1,
-        );
-        final bytes = <int>[];
-        await for (final chunk in request.timeout(
-          const Duration(seconds: 15),
-        )) {
-          if (bytes.length + chunk.length > 512) {
-            throw const FormatException('连接请求过大');
-          }
-          bytes.addAll(chunk);
-        }
-        final input = jsonDecode(utf8.decode(bytes));
-        if (input is! Map || input['code'] != code) {
-          await _json(response, 401, {'error': '传输码不正确'});
-          return;
-        }
-        _attempts.remove(key);
-        await _json(response, 200, {'token': _token});
       } else if (request.method == 'POST' && request.uri.path == '/upload') {
-        if (request.headers.value('authorization') != 'Bearer $_token') {
-          await _json(response, 401, {'error': '请先输入传输码连接阅读器'});
-          return;
-        }
         await _upload(request);
       } else {
         await _json(response, 404, {'error': '页面不存在'});
@@ -286,7 +250,6 @@ class WifiUploadServer {
     _server = null;
     await server?.close(force: true);
     await _subscription?.cancel();
-    _attempts.clear();
     await _events.close();
   }
 }

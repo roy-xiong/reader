@@ -11,6 +11,7 @@ class ReaderSettings {
     this.letterSpacing = 0,
     this.paragraphSpacing = 12,
     this.backgroundOpacity = 1,
+    this.readingBrightness = 1,
     this.textColor,
     this.photoTextColor,
     this.photoGroupId,
@@ -31,7 +32,7 @@ class ReaderSettings {
   });
   final String theme;
   final double fontSize, lineHeight, letterSpacing, paragraphSpacing;
-  final double backgroundOpacity;
+  final double backgroundOpacity, readingBrightness;
   final int? textColor, backgroundColor, photoTextColor;
   final String? photoGroupId;
   final String readingLayout, verticalDirection;
@@ -50,6 +51,7 @@ class ReaderSettings {
     double? letterSpacing,
     double? paragraphSpacing,
     double? backgroundOpacity,
+    double? readingBrightness,
     int? textColor,
     int? photoTextColor,
     String? photoGroupId,
@@ -78,6 +80,7 @@ class ReaderSettings {
     letterSpacing: letterSpacing ?? this.letterSpacing,
     paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
     backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
+    readingBrightness: readingBrightness ?? this.readingBrightness,
     textColor: resetColors ? null : textColor ?? this.textColor,
     photoTextColor: resetColors || resetPhotoTextColor
         ? null
@@ -108,6 +111,7 @@ class ReaderSettings {
     'letterSpacing': letterSpacing,
     'paragraphSpacing': paragraphSpacing,
     'backgroundOpacity': backgroundOpacity,
+    'readingBrightness': readingBrightness,
     'textColor': textColor,
     'photoTextColor': photoTextColor,
     'photoGroupId': photoGroupId,
@@ -136,6 +140,7 @@ class ReaderSettings {
     letterSpacing: _number(j['letterSpacing'], 0, -1, 8),
     paragraphSpacing: _number(j['paragraphSpacing'], 12, 0, 48),
     backgroundOpacity: _number(j['backgroundOpacity'], 1, 0, 1),
+    readingBrightness: _number(j['readingBrightness'], 1, .1, 1),
     textColor: j['textColor'] as int?,
     photoTextColor: j['photoTextColor'] is int
         ? j['photoTextColor'] as int

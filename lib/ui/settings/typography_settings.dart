@@ -25,8 +25,7 @@ class TypographySettings extends StatelessWidget {
                       if (Platform.isIOS) {
                         Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) =>
-                                WifiUploadScreen(model: model, kind: 'font'),
+                            builder: (_) => WifiUploadScreen(model: model),
                           ),
                         );
                       } else {

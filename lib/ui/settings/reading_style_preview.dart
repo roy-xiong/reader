@@ -8,6 +8,7 @@ import '../reader_page.dart';
 import '../reader_pager.dart';
 import '../reading_backdrop.dart';
 import '../reading_style.dart';
+import '../reading_brightness.dart';
 
 /// 设置中唯一的阅读预览：复用正文分页、字形绘制、照片遮罩和翻页组件。
 /// 样本文字及页码仅保存在此组件，试翻不修改书籍进度，也不累计照片轮换次数。
@@ -151,62 +152,67 @@ class _ReadingStylePreviewState extends State<ReadingStylePreview> {
           ),
         ),
         Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
+          child: ReadingDimmer(
+            value: s.readingBrightness,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                  borderRadius: BorderRadius.circular(18),
                 ),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: ColoredBox(
-                key: const ValueKey('reading-style-preview-background'),
-                color: model.currentPhoto == null
-                    ? resolved.background.withValues(alpha: s.backgroundOpacity)
-                    : Colors.transparent,
-                child: ReadingBackdrop(
-                  model: model,
-                  background: resolved.background,
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final width = math.max(1.0, constraints.maxWidth),
-                            height = math.max(1.0, constraints.maxHeight);
-                        final scaler = MediaQuery.textScalerOf(context);
-                        _layout(width, height, resolved.text, scaler);
-                        if (_layingOut) {
-                          return const Center(
-                            child: SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.5,
+                child: ColoredBox(
+                  key: const ValueKey('reading-style-preview-background'),
+                  color: model.currentPhoto == null
+                      ? resolved.background.withValues(
+                          alpha: s.backgroundOpacity,
+                        )
+                      : Colors.transparent,
+                  child: ReadingBackdrop(
+                    model: model,
+                    background: resolved.background,
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final width = math.max(1.0, constraints.maxWidth),
+                              height = math.max(1.0, constraints.maxHeight);
+                          final scaler = MediaQuery.textScalerOf(context);
+                          _layout(width, height, resolved.text, scaler);
+                          if (_layingOut) {
+                            return const Center(
+                              child: SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                ),
                               ),
+                            );
+                          }
+                          if (_pages.isEmpty) {
+                            return const Center(child: Text('暂无可预览内容'));
+                          }
+                          return ReaderPager(
+                            key: _pager,
+                            effect: s.pageEffect,
+                            particleDirectional: s.particleDirectional,
+                            background: resolved.background.withValues(
+                              alpha: s.backgroundOpacity,
+                            ),
+                            onTurn: _turn,
+                            onToggle: () =>
+                                unawaited(_pager.currentState?.turn(true)),
+                            child: ReaderPage(
+                              page: _pages[_index],
+                              width: width,
+                              style: resolved.text,
+                              scaler: scaler,
                             ),
                           );
-                        }
-                        if (_pages.isEmpty) {
-                          return const Center(child: Text('暂无可预览内容'));
-                        }
-                        return ReaderPager(
-                          key: _pager,
-                          effect: s.pageEffect,
-                          particleDirectional: s.particleDirectional,
-                          background: resolved.background.withValues(
-                            alpha: s.backgroundOpacity,
-                          ),
-                          onTurn: _turn,
-                          onToggle: () =>
-                              unawaited(_pager.currentState?.turn(true)),
-                          child: ReaderPage(
-                            page: _pages[_index],
-                            width: width,
-                            style: resolved.text,
-                            scaler: scaler,
-                          ),
-                        );
-                      },
+                        },
+                      ),
                     ),
                   ),
                 ),
