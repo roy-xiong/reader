@@ -15,6 +15,10 @@ class ReaderPage extends StatelessWidget {
   final TextStyle style;
   final TextScaler scaler;
 
+  /// 动画只录制透明的正文墨迹，背景仍由阅读窗口负责，支持完全透明的 macOS 阅读页。
+  void paintInk(Canvas canvas, Size size) =>
+      _TextPagePainter(page, width, style, scaler).paint(canvas, size);
+
   @override
   Widget build(BuildContext context) => Semantics(
     label: page.fragments.map((fragment) => fragment.text).join('\n'),

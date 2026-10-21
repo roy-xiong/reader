@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'page_turn_effect.dart';
 
 /// 可持久化的阅读偏好。透明度只应用到阅读背景，不改变正文的不透明度。
 @immutable
@@ -89,7 +90,7 @@ class ReaderSettings {
     backgroundColor: j['backgroundColor'] as int?,
     fontId: j['fontId'] as String?,
     fontName: j['fontName'] as String?,
-    pageEffect: j['pageEffect'] == 'none' ? 'none' : 'cover',
+    pageEffect: PageTurnEffect.parse(j['pageEffect']).id,
     scriptMode:
         ['original', 'simplified', 'traditional'].contains(j['scriptMode'])
         ? j['scriptMode'] as String

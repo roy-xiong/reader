@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +13,7 @@ import 'core/reader_icon.dart';
 import 'page_flip_preview.dart';
 import 'page_flip_session.dart';
 import 'reader_page.dart';
+import 'reader_pager.dart';
 
 /// 阅读页默认仅显示正文和进度，点击中央时才显示临时操作栏。
 class ReaderScreen extends StatefulWidget {
@@ -52,7 +52,7 @@ class ReaderScreenState extends State<ReaderScreen> {
   int indexGeneration = 0;
   Timer? indexDebounce;
   bool indexFailed = false;
-  final pager = GlobalKey<_CoverPagerState>();
+  final pager = GlobalKey<ReaderPagerState>();
   bool navigationBusy = false;
   Future<void> requestTurn(bool forward) async {
     if (_preview != null) {
@@ -745,9 +745,12 @@ class ReaderScreenState extends State<ReaderScreen> {
                                               ),
                                             ),
                                           )
-                                        : _CoverPager(
+                                        : ReaderPager(
                                             key: pager,
                                             effect: s.pageEffect,
+                                            background: background.withValues(
+                                              alpha: s.backgroundOpacity,
+                                            ),
                                             onTurn: _turn,
                                             onToggle: () => setState(
                                               () => controls = !controls,
@@ -983,155 +986,6 @@ class ReaderScreenState extends State<ReaderScreen> {
       );
     },
   );
-}
-
-/// 横向覆盖：下一页从右侧覆盖当前页，返回时当前页向右移出。
-class _CoverPager extends StatefulWidget {
-  const _CoverPager({
-    super.key,
-    required this.child,
-    required this.onTurn,
-    required this.onToggle,
-    required this.effect,
-  });
-  final Widget child;
-  final Future<bool> Function(bool) onTurn;
-  final VoidCallback onToggle;
-  final String effect;
-  @override
-  State<_CoverPager> createState() => _CoverPagerState();
-}
-
-class _CoverPagerState extends State<_CoverPager>
-    with SingleTickerProviderStateMixin {
-  late final animation = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 230),
-  );
-  Widget? old;
-  bool forward = true, turning = false;
-  double drag = 0;
-  DateTime lastWheel = DateTime.fromMillisecondsSinceEpoch(0);
-  Future<void> turn(bool next) async {
-    if (turning) {
-      return;
-    }
-    turning = true;
-    final previous = widget.child;
-    try {
-      final moved = await widget.onTurn(next);
-      if (!mounted ||
-          !moved ||
-          widget.effect == 'none' ||
-          MediaQuery.disableAnimationsOf(context)) {
-        return;
-      }
-      setState(() {
-        old = previous;
-        forward = next;
-      });
-      await animation.forward(from: 0).orCancel;
-      if (mounted) {
-        setState(() => old = null);
-      }
-    } on TickerCanceled {
-      // 页面退出时终止动画，避免悬挂的 TickerFuture。
-    } finally {
-      turning = false;
-    }
-  }
-
-  @override
-  void dispose() {
-    animation.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) => Listener(
-      onPointerSignal: (event) {
-        if (event is PointerScrollEvent &&
-            event.scrollDelta.distance > 5 &&
-            DateTime.now().difference(lastWheel).inMilliseconds > 280) {
-          lastWheel = DateTime.now();
-          unawaited(
-            turn(
-              (event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
-                      ? event.scrollDelta.dy
-                      : event.scrollDelta.dx) >
-                  0,
-            ),
-          );
-        }
-      },
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapUp: (details) {
-          final fraction =
-              details.localPosition.dx / max(1, constraints.maxWidth);
-          if (fraction < .25) {
-            unawaited(turn(false));
-          } else if (fraction > .75) {
-            unawaited(turn(true));
-          } else {
-            widget.onToggle();
-          }
-        },
-        onHorizontalDragStart: (_) => drag = 0,
-        onHorizontalDragUpdate: (details) => drag += details.delta.dx,
-        onHorizontalDragEnd: (details) {
-          if (drag.abs() > 35 || (details.primaryVelocity ?? 0).abs() > 200) {
-            unawaited(
-              turn(
-                drag.abs() > 35 ? drag < 0 : (details.primaryVelocity ?? 0) < 0,
-              ),
-            );
-          }
-        },
-        child: ClipRect(
-          child: AnimatedBuilder(
-            animation: animation,
-            builder: (context, _) {
-              final previous = old;
-              if (previous == null) {
-                return widget.child;
-              }
-              final progress = Curves.easeOutCubic.transform(animation.value);
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRect(
-                    clipper: _PageReveal(forward ? 1 - progress : progress),
-                    child: forward ? previous : widget.child,
-                  ),
-                  Transform.translate(
-                    offset: Offset(
-                      constraints.maxWidth *
-                          (forward ? 1 - progress : progress),
-                      0,
-                    ),
-                    child: forward ? widget.child : previous,
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-/// 对底页做裁切，透明模式下两页文字也不会重叠。
-class _PageReveal extends CustomClipper<Rect> {
-  const _PageReveal(this.fraction);
-  final double fraction;
-  @override
-  Rect getClip(Size size) =>
-      Rect.fromLTWH(0, 0, size.width * fraction, size.height);
-  @override
-  bool shouldReclip(covariant _PageReveal old) => old.fraction != fraction;
 }
 
 class _SearchDialog extends StatefulWidget {
