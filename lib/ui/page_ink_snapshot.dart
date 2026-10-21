@@ -127,6 +127,7 @@ class PageInkSnapshot {
     double progress, {
     required bool incoming,
     required bool forward,
+    bool directional = false,
   }) {
     final rects = _rects,
         transforms = _transforms,
@@ -150,7 +151,8 @@ class PageInkSnapshot {
       final x = rects[r], y = rects[r + 1];
       final n = noise[i * 2], m = noise[i * 2 + 1];
       final sweep = forward ? x / image.width : 1 - x / image.width;
-      final delay = sweep * .12 + n * .10;
+      // 默认不区分前后翻页：去掉左右扫过的时序，使用各笔画自身的随机延迟。
+      final delay = directional ? sweep * .12 + n * .10 : n * .22;
       final local = incoming
           ? ((progress - .32 - delay) / (.68 - delay)).clamp(0.0, 1.0)
           : ((progress - delay) / (.68 - delay)).clamp(0.0, 1.0);
@@ -159,8 +161,20 @@ class PageInkSnapshot {
       final angle = (m - .5) * scatter * 1.2;
       final scale = 1 - scatter * .48;
       final c = math.cos(angle) * scale, s = math.sin(angle) * scale;
-      final dx = direction * (12 + 45 * n) * scatter / scaleX;
-      final dy = ((m - .5) * 35 - 20 * scatter) * scatter / scaleY;
+      // 关闭方向感时在原笔画周围均匀散开，不保留水平或向上的整体漂移。
+      final radius = 8 + 22 * n;
+      final dx =
+          (directional
+              ? direction * (12 + 45 * n)
+              : math.cos(m * math.pi * 2) * radius) *
+          scatter /
+          scaleX;
+      final dy =
+          (directional
+              ? (m - .5) * 35 - 20 * scatter
+              : math.sin(m * math.pi * 2) * radius) *
+          scatter /
+          scaleY;
       final w = rects[r + 2] - x, h = rects[r + 3] - y;
       // RSTransform 的平移量以精灵局部坐标为基准。
       transforms[r] = c;

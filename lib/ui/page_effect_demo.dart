@@ -7,8 +7,13 @@ import 'reader_pager.dart';
 
 /// 设置里的独立小样，不关联正在阅读的书籍，试用效果不会修改阅读进度。
 class PageEffectDemo extends StatefulWidget {
-  const PageEffectDemo({super.key, required this.effect});
+  const PageEffectDemo({
+    super.key,
+    required this.effect,
+    this.particleDirectional = false,
+  });
   final String effect;
+  final bool particleDirectional;
   @override
   State<PageEffectDemo> createState() => _PageEffectDemoState();
 }
@@ -49,6 +54,7 @@ class _PageEffectDemoState extends State<PageEffectDemo> {
               builder: (context, constraints) => ReaderPager(
                 key: _pager,
                 effect: effect.id,
+                particleDirectional: widget.particleDirectional,
                 background: theme.colorScheme.surfaceContainer,
                 onToggle: () => unawaited(_pager.currentState?.turn(true)),
                 onTurn: (_) async {

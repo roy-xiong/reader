@@ -16,6 +16,7 @@ class PageTurnTransition extends StatelessWidget {
     required this.progress,
     required this.forward,
     required this.background,
+    this.particleDirectional = false,
     this.previousInk,
     this.currentInk,
   });
@@ -23,6 +24,7 @@ class PageTurnTransition extends StatelessWidget {
   final ReaderPage previous, current;
   final double progress;
   final bool forward;
+  final bool particleDirectional;
   final Color background;
   final PageInkSnapshot? previousInk, currentInk;
 
@@ -131,6 +133,7 @@ class PageTurnTransition extends StatelessWidget {
               raw,
               forward,
               background,
+              particleDirectional,
             ),
             size: Size.infinite,
           );
@@ -161,11 +164,13 @@ class _InkTransitionPainter extends CustomPainter {
     this.progress,
     this.forward,
     this.background,
+    this.particleDirectional,
   );
   final PageInkSnapshot previous, current;
   final PageTurnEffect effect;
   final double progress;
   final bool forward;
+  final bool particleDirectional;
   final Color background;
 
   @override
@@ -183,6 +188,7 @@ class _InkTransitionPainter extends CustomPainter {
         progress,
         incoming: false,
         forward: forward,
+        directional: particleDirectional,
       );
       current.paintParticles(
         canvas,
@@ -190,6 +196,7 @@ class _InkTransitionPainter extends CustomPainter {
         progress,
         incoming: true,
         forward: forward,
+        directional: particleDirectional,
       );
     } else {
       _curl(canvas, size);
@@ -270,5 +277,6 @@ class _InkTransitionPainter extends CustomPainter {
       old.effect != effect ||
       old.progress != progress ||
       old.forward != forward ||
-      old.background != background;
+      old.background != background ||
+      old.particleDirectional != particleDirectional;
 }

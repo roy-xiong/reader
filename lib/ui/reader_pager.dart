@@ -16,12 +16,14 @@ class ReaderPager extends StatefulWidget {
     required this.onToggle,
     required this.effect,
     required this.background,
+    this.particleDirectional = false,
   });
   final ReaderPage child;
   final Future<bool> Function(bool) onTurn;
   final VoidCallback onToggle;
   final String effect;
   final Color background;
+  final bool particleDirectional;
   @override
   State<ReaderPager> createState() => ReaderPagerState();
 }
@@ -142,6 +144,7 @@ class ReaderPagerState extends State<ReaderPager>
   void didUpdateWidget(covariant ReaderPager oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.effect != widget.effect ||
+        oldWidget.particleDirectional != widget.particleDirectional ||
         oldWidget.child.width != widget.child.width ||
         oldWidget.child.style != widget.child.style ||
         oldWidget.child.scaler != widget.child.scaler) {
@@ -241,6 +244,7 @@ class ReaderPagerState extends State<ReaderPager>
                   progress: _animation.value,
                   forward: _forward,
                   background: widget.background,
+                  particleDirectional: widget.particleDirectional,
                   previousInk: _previousInk,
                   currentInk: _currentInk,
                 );

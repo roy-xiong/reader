@@ -256,7 +256,20 @@ class SettingsScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  PageEffectDemo(effect: s.pageEffect),
+                  if (s.pageEffect == 'particles')
+                    SwitchListTile(
+                      key: const ValueKey('particle-directional-switch'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('粒子方向感'),
+                      subtitle: const Text('开启后随翻页方向飘散；关闭时在原地均匀消散和聚合。'),
+                      value: s.particleDirectional,
+                      onChanged: (value) =>
+                          update(s.copyWith(particleDirectional: value)),
+                    ),
+                  PageEffectDemo(
+                    effect: s.pageEffect,
+                    particleDirectional: s.particleDirectional,
+                  ),
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: Text('阅读操作'),
@@ -290,7 +303,7 @@ class SettingsScreen extends StatelessWidget {
                   _section(context, '关于 Reader'),
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('阅读 1.2.0'),
+                    title: Text('阅读 1.2.1'),
                     subtitle: Text(
                       '本地书架 · 离线阅读\n支持 TXT、EPUB、MOBI、AZW / AZW3、HTML 的可重排文字。\n受 DRM 保护、纯图片和扫描版电子书暂不支持。',
                     ),
@@ -302,7 +315,7 @@ class SettingsScreen extends StatelessWidget {
                     onTap: () => showLicensePage(
                       context: context,
                       applicationName: '阅读',
-                      applicationVersion: '1.2.0',
+                      applicationVersion: '1.2.1',
                       applicationLegalese: 'GPL-3.0-or-later',
                     ),
                   ),

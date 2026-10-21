@@ -748,6 +748,8 @@ class ReaderScreenState extends State<ReaderScreen> {
                                         : ReaderPager(
                                             key: pager,
                                             effect: s.pageEffect,
+                                            particleDirectional:
+                                                s.particleDirectional,
                                             background: background.withValues(
                                               alpha: s.backgroundOpacity,
                                             ),

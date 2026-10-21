@@ -16,6 +16,7 @@ class ReaderSettings {
     this.fontId,
     this.fontName,
     this.pageEffect = 'cover',
+    this.particleDirectional = false,
     this.scriptMode = 'original',
     this.fontWeight = 400,
   });
@@ -25,6 +26,7 @@ class ReaderSettings {
   final int? textColor, backgroundColor;
   final String? fontId, fontName;
   final String pageEffect, scriptMode;
+  final bool particleDirectional;
   final double fontWeight;
 
   ReaderSettings copyWith({
@@ -39,6 +41,7 @@ class ReaderSettings {
     String? fontId,
     String? fontName,
     String? pageEffect,
+    bool? particleDirectional,
     String? scriptMode,
     double? fontWeight,
     bool resetColors = false,
@@ -57,6 +60,7 @@ class ReaderSettings {
     fontId: resetFont ? null : fontId ?? this.fontId,
     fontName: resetFont ? null : fontName ?? this.fontName,
     pageEffect: pageEffect ?? this.pageEffect,
+    particleDirectional: particleDirectional ?? this.particleDirectional,
     scriptMode: scriptMode ?? this.scriptMode,
     fontWeight: fontWeight ?? this.fontWeight,
   );
@@ -73,6 +77,7 @@ class ReaderSettings {
     'fontId': fontId,
     'fontName': fontName,
     'pageEffect': pageEffect,
+    'particleDirectional': particleDirectional,
     'scriptMode': scriptMode,
     'fontWeight': fontWeight,
   };
@@ -91,6 +96,7 @@ class ReaderSettings {
     fontId: j['fontId'] as String?,
     fontName: j['fontName'] as String?,
     pageEffect: PageTurnEffect.parse(j['pageEffect']).id,
+    particleDirectional: j['particleDirectional'] == true,
     scriptMode:
         ['original', 'simplified', 'traditional'].contains(j['scriptMode'])
         ? j['scriptMode'] as String
