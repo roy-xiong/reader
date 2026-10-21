@@ -66,6 +66,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>用于从完整相册中选择阅读背景照片；只导入你主动选择的照片。</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>在同一 Wi-Fi 内从电脑浏览器上传书籍和字体到本机。</string>
 </dict>

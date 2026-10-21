@@ -11,8 +11,13 @@ class PageFragment {
     this.height, {
     this.isHeading = false,
     this.separatorAfter = false,
+    this.layoutTail = '',
   });
   final String text;
+
+  /// 续页片段只携带下一行作为排版上下文，保证本页末行仍按软换行两端对齐。
+  /// 该部分不会绘制、不会加入语义文本或参与当前位置。
+  final String layoutTail;
   final double y, height;
   final bool isHeading, separatorAfter;
 }
@@ -44,6 +49,24 @@ class Pagination {
               ? body.fontWeight
               : FontWeight.w700,
         );
+
+  /// 分页与正文绘制共用同一对齐和行高规则，避免右边多出一段未利用的行宽。
+  static TextPainter textPainter({
+    required String text,
+    required double width,
+    required TextStyle style,
+    required bool heading,
+    required TextScaler scaler,
+  }) => TextPainter(
+    text: TextSpan(text: text, style: fragmentStyle(style, heading)),
+    textDirection: TextDirection.ltr,
+    textAlign: heading ? TextAlign.left : TextAlign.justify,
+    textScaler: scaler,
+    textHeightBehavior: const TextHeightBehavior(
+      applyHeightToFirstAscent: false,
+      applyHeightToLastDescent: false,
+    ),
+  )..layout(minWidth: max(1, width), maxWidth: max(1, width));
 
   static Future<List<ReadingPage>> layout({
     required BookDocument document,
@@ -107,11 +130,13 @@ class Pagination {
           offset < chapter.headingEnd!;
       final reserve = heading ? 18.0 : 0.0;
       final remaining = document.text.substring(offset, paragraphEnd);
-      final painter = TextPainter(
-        text: TextSpan(text: remaining, style: fragmentStyle(style, heading)),
-        textDirection: TextDirection.ltr,
-        textScaler: scaler,
-      )..layout(maxWidth: max(1, width));
+      final painter = textPainter(
+        text: remaining,
+        width: width,
+        style: style,
+        heading: heading,
+        scaler: scaler,
+      );
       try {
         final metrics = painter.computeLineMetrics();
         var count = 0;
@@ -142,6 +167,18 @@ class Pagination {
               .clamp(1, remaining.length);
         }
         final text = remaining.substring(0, length);
+        var tail = '';
+        if (count < metrics.length) {
+          final next = metrics[count];
+          final nextPosition = painter.getPositionForOffset(
+            Offset(0, next.baseline - next.ascent / 2),
+          );
+          final nextEnd = painter
+              .getLineBoundary(nextPosition)
+              .end
+              .clamp(length, remaining.length);
+          tail = remaining.substring(length, nextEnd);
+        }
         final fragmentHeight = last.baseline + last.descent;
         final separator = heading && offset + length >= chapter.headingEnd!;
         fragments.add(
@@ -151,6 +188,7 @@ class Pagination {
             fragmentHeight,
             isHeading: heading,
             separatorAfter: separator,
+            layoutTail: tail,
           ),
         );
         y += fragmentHeight + (separator ? 18 : 0);

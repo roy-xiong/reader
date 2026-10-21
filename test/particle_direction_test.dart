@@ -125,6 +125,8 @@ void main() {
     await model.initialize();
     model.updateSettings(model.settings.copyWith(pageEffect: 'particles'));
     await tester.pumpWidget(MaterialApp(home: SettingsScreen(model: model)));
+    await tester.tap(find.byKey(const ValueKey('settings-pageTurn')));
+    await tester.pumpAndSettle();
     final toggle = find.byKey(const ValueKey('particle-directional-switch'));
     await tester.scrollUntilVisible(toggle, 350);
     await tester.pumpAndSettle();
@@ -132,7 +134,7 @@ void main() {
     await tester.tap(toggle);
     await tester.pumpAndSettle();
     expect(model.settings.particleDirectional, isTrue);
-    final demo = find.byKey(const ValueKey('page-effect-demo'));
+    final demo = find.byKey(const ValueKey('reading-style-preview'));
     await tester.ensureVisible(demo);
     await tester.pumpAndSettle();
     expect(

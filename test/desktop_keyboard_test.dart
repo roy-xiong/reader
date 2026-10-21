@@ -29,6 +29,9 @@ void main() {
       await tester.pump();
       expect(platform.minimized, 2);
       expect(find.byType(SettingsScreen), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('settings-background')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('选择颜色').first);
       await tester.tap(find.text('选择颜色').first);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('hex-color-input')));
@@ -37,6 +40,10 @@ void main() {
       expect(platform.minimized, 3);
       expect(find.byType(AlertDialog), findsOneWidget);
       await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-files')));
       await tester.pumpAndSettle();
       final upload = find.text('Wi-Fi 上传书籍和字体');
       await tester.scrollUntilVisible(upload, 350);
@@ -126,6 +133,8 @@ void main() {
       final model = AppModel(_Repository(), platform);
       await model.initialize();
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(model: model)));
+      await tester.tap(find.byKey(const ValueKey('settings-files')));
+      await tester.pumpAndSettle();
       final local = find.byKey(const ValueKey('local-book-import'));
       await tester.scrollUntilVisible(local, 250);
       await tester.ensureVisible(local);

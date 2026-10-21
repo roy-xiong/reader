@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../domain/reading_appearance.dart';
@@ -6,6 +7,7 @@ import 'app_model.dart';
 import 'background_groups.dart';
 import 'reader_color_picker.dart';
 import 'core/reader_icon.dart';
+import 'settings/settings_controls.dart';
 
 /// 官方配色与照片设置集中在设置页，不在正文叠加常驻操作控件。
 class AppearanceSettings extends StatelessWidget {
@@ -29,8 +31,11 @@ class AppearanceSettings extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
                 onTap: () => model.applyPalette(palette),
                 child: Container(
-                  width: 124,
-                  padding: const EdgeInsets.all(14),
+                  width: 100,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 13,
+                  ),
                   decoration: BoxDecoration(
                     color: Color(palette.background),
                     borderRadius: BorderRadius.circular(14),
@@ -44,31 +49,52 @@ class AppearanceSettings extends StatelessWidget {
                           : Colors.grey.withValues(alpha: .25),
                     ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        palette.name,
-                        style: TextStyle(
-                          color: Color(palette.text),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 7),
-                      Text(
-                        '字里行间\n安静阅读',
-                        style: TextStyle(
-                          color: Color(palette.text),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    palette.name,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(palette.text),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
+        SettingsColor(
+          title: '字体颜色',
+          value: settings.textColor,
+          history: model.textColors,
+          onChanged: model.setTextColor,
+        ),
+        SettingsColor(
+          title: '背景颜色',
+          value: settings.backgroundColor,
+          history: model.backgroundColors,
+          onChanged: model.setBackgroundColor,
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: () =>
+                model.updateSettings(settings.copyWith(resetColors: true)),
+            child: const Text('恢复主题默认颜色'),
+          ),
+        ),
+        SettingsSlider(
+          title: '阅读背景不透明度',
+          value: settings.backgroundOpacity,
+          min: 0,
+          max: 1,
+          label: '${(settings.backgroundOpacity * 100).round()}%',
+          onChanged: (v) =>
+              model.updateSettings(settings.copyWith(backgroundOpacity: v)),
+          subtitle: Platform.isMacOS
+              ? '0% 阅读背景完全透明，标题栏保留磨砂效果'
+              : '桌面穿透效果在 macOS 版本生效',
+        ),
+        const Divider(height: 32),
         Row(
           children: [
             Expanded(
@@ -88,6 +114,21 @@ class AppearanceSettings extends StatelessWidget {
           '可选多张。按正式翻页次数切换，预览、搜索和目录跳转不计数。',
           style: TextStyle(fontSize: 12),
         ),
+        if (defaultTargetPlatform == TargetPlatform.iOS)
+          ListTile(
+            key: const ValueKey('photo-access-management'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('相册访问权限'),
+            subtitle: Text(switch (model.photoAccess) {
+              'authorized' => '已允许完全访问照片',
+              'limited' => '当前仅授权部分照片，可管理所选照片或前往系统设置开启完全访问',
+              'denied' => '未授权直接访问，可前往设置调整；系统相册选择仍可使用',
+              'restricted' => '系统限制了相册访问，可检查屏幕使用时间等系统设置',
+              _ => '可申请完整访问，或继续使用系统相册选择照片',
+            }),
+            trailing: const ReaderIcon(ReaderGlyph.chevronRight),
+            onTap: model.managePhotoAccess,
+          ),
         if (model.photos.isNotEmpty) ...[
           BackgroundGroups(model: model),
           SwitchListTile(
@@ -234,47 +275,6 @@ class AppearanceSettings extends StatelessWidget {
                 model.settings.copyWith(resetPhotoTextColor: true),
               ),
               child: const Text('照片文字跟随默认颜色'),
-            ),
-          const SizedBox(height: 12),
-          if (model.activePhotos.isNotEmpty)
-            SizedBox(
-              height: 120,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.file(
-                      model.repository.backgroundFile(
-                        model
-                            .activePhotos[settings.photoIndex %
-                                model.activePhotos.length]
-                            .id,
-                      ),
-                      fit: BoxFit.cover,
-                      cacheWidth: 680,
-                      errorBuilder: (_, _, _) =>
-                          const ColoredBox(color: Colors.grey),
-                    ),
-                    ColoredBox(
-                      color: Colors.black.withValues(alpha: settings.photoDim),
-                    ),
-                    Center(
-                      child: Text(
-                        '在文字之间，找到自己的节奏。',
-                        style: TextStyle(
-                          color: Color(
-                            settings.photoTextColor ??
-                                settings.textColor ??
-                                0xffe7e7e7,
-                          ),
-                          fontSize: 17,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
         ],
         const SizedBox(height: 24),

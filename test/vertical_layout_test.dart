@@ -203,6 +203,7 @@ void main() {
       expect(tester.takeException(), isNull);
     }
     await tester.pumpWidget(MaterialApp(home: SettingsScreen(model: model)));
+    await tester.tap(find.byKey(const ValueKey('settings-typography')));
     await tester.pumpAndSettle();
     final selector = find.byKey(const ValueKey('vertical-direction-selector'));
     await tester.scrollUntilVisible(

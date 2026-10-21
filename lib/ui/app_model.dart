@@ -85,6 +85,7 @@ class AppModel extends ChangeNotifier {
   int failedAttempts = 0, blockedUntil = 0;
   String? error, busyLabel;
   String? loadedFontId;
+  String photoAccess = 'system';
   Timer? _saveTimer;
   bool _disposed = false;
   void changed() {
@@ -155,6 +156,7 @@ class AppModel extends ChangeNotifier {
       }
     }
     await platform.appearance(settings.theme);
+    if (Platform.isIOS) await refreshPhotoAccess();
     changed();
   }
 
@@ -503,6 +505,26 @@ class AppModel extends ChangeNotifier {
     );
   }
 
+  /// 只有用户点击“相册访问权限”才发起授权管理；普通系统选图不强制要求完整授权。
+  Future<void> managePhotoAccess() async {
+    try {
+      await platform.managePhotoAccess();
+      await refreshPhotoAccess();
+    } catch (e) {
+      error = _message(e);
+      changed();
+    }
+  }
+
+  Future<void> refreshPhotoAccess() async {
+    try {
+      photoAccess = await platform.photoAccess();
+    } catch (_) {
+      photoAccess = 'system';
+    }
+    changed();
+  }
+
   Future<void> importPhotos() async {
     if (busy || locked) {
       return;
@@ -560,6 +582,9 @@ class AppModel extends ChangeNotifier {
       }
       if (failures.isNotEmpty) {
         error = '部分照片无法读取：${failures.take(3).join('、')}';
+      }
+      if (platform.imageImportWarning != null) {
+        error = platform.imageImportWarning;
       }
     } catch (e) {
       error = _message(e);

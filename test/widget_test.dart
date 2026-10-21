@@ -206,7 +206,8 @@ void main() {
         await tester.runAsync(() => _capture(boundary, 'shelf-wide'));
       }
       await show(SettingsScreen(model: model));
-      expect(find.text('阅读背景不透明度'), findsOneWidget);
+      expect(find.byKey(const ValueKey('settings-background')), findsOneWidget);
+      expect(find.byType(Slider), findsNothing);
       if (size.width == 1400) {
         await tester.runAsync(() => _capture(boundary, 'settings-wide'));
       }

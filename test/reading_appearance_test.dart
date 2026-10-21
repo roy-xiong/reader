@@ -134,6 +134,9 @@ void main() {
     await model.initialize();
     model.setTextColor(0xff123456);
     await tester.pumpWidget(MaterialApp(home: SettingsScreen(model: model)));
+    await tester.tap(find.byKey(const ValueKey('settings-background')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('选择颜色').first);
     await tester.tap(find.text('选择颜色').first);
     await tester.pumpAndSettle();
     expect(find.text('我的自定义颜色'), findsOneWidget);

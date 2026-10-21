@@ -19,8 +19,26 @@ class PlatformService {
       }) ??
       [];
 
-  Future<List<String>> pickImages() async =>
-      await channel.invokeListMethod<String>('pickImages') ?? [];
+  /// 兼容各平台原有列表返回值，以及 iOS 的部分失败提示。
+  String? imageImportWarning;
+  Future<List<String>> pickImages() async {
+    imageImportWarning = null;
+    final value = await channel.invokeMethod<Object?>('pickImages');
+    if (value is List) return value.whereType<String>().toList();
+    if (value is Map) {
+      final failed = value['failed'];
+      if (failed is num && failed > 0) {
+        imageImportWarning = '${failed.toInt()} 张照片读取失败，请确认照片已下载到本机，或联网后重试';
+      }
+      return (value['paths'] as List? ?? []).whereType<String>().toList();
+    }
+    return [];
+  }
+
+  Future<String> photoAccess() async =>
+      await channel.invokeMethod<String>('photoAccess') ?? 'system';
+  Future<void> managePhotoAccess() =>
+      channel.invokeMethod<void>('managePhotoAccess');
 
   /// 清理原生选择器产生的缓存副本；原生层再次校验目录边界。
   Future<void> discard(List<String> paths) async {

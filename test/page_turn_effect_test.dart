@@ -6,7 +6,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader/domain/models.dart';
 import 'package:reader/domain/page_turn_effect.dart';
 import 'package:reader/domain/pagination.dart';
-import 'package:reader/ui/page_effect_demo.dart';
+import 'package:reader/ui/app_model.dart';
+import 'package:reader/data/library_repository.dart';
+import 'package:reader/data/platform_service.dart';
+import 'package:reader/ui/settings/settings_category.dart';
+import 'package:reader/ui/settings/settings_detail_screen.dart';
 import 'package:reader/ui/page_ink_snapshot.dart';
 import 'package:reader/ui/page_turn_transition.dart';
 import 'package:reader/ui/reader_page.dart';
@@ -189,26 +193,30 @@ void main() {
     }
   });
 
-  testWidgets('设置试翻支持小窗口，效果切换后不残留旧动画', (tester) async {
+  testWidgets('统一预览试翻支持小窗口，效果切换后不残留旧动画', (tester) async {
+    tester.view.physicalSize = const Size(320, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final model = AppModel(_PreviewRepository(), PlatformService());
+    model.updateSettings(model.settings.copyWith(pageEffect: 'card'));
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: SizedBox(width: 280, child: PageEffectDemo(effect: 'card')),
-        ),
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('play-page-effect')));
-    await tester.pump(const Duration(milliseconds: 80));
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: SizedBox(width: 280, child: PageEffectDemo(effect: 'fade')),
+      MaterialApp(
+        home: SettingsDetailScreen(
+          model: model,
+          category: SettingsCategory.pageTurn,
         ),
       ),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('play-page-effect')));
+    await tester.pump(const Duration(milliseconds: 80));
+    model.updateSettings(model.settings.copyWith(pageEffect: 'fade'));
+    await tester.pumpAndSettle();
     expect(find.byType(PageTurnTransition), findsNothing);
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    model.dispose();
   });
 }
 
@@ -291,4 +299,10 @@ class _HarnessState extends State<_Harness> {
       ),
     ),
   );
+}
+
+class _PreviewRepository extends LibraryRepository {
+  _PreviewRepository() : super(Directory.systemTemp);
+  @override
+  Future<void> save(Map<String, dynamic> snapshot) async {}
 }

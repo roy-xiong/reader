@@ -218,6 +218,7 @@ void main() {
       const Size(18, 18),
     );
     await tester.pumpWidget(MaterialApp(home: SettingsScreen(model: model)));
+    await tester.tap(find.byKey(const ValueKey('settings-appearance')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('theme-selector')));
     await tester.pumpAndSettle();
@@ -234,6 +235,11 @@ void main() {
     );
     await tester.tap(option);
     await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-background')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('选择颜色').first);
     await tester.tap(find.text('选择颜色').first);
     await tester.pumpAndSettle();
     final input = find.byKey(const ValueKey('hex-color-input'));

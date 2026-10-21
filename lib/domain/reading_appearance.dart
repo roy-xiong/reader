@@ -7,13 +7,13 @@ class ReadingPalette {
   final String name;
   final int text, background;
   static const presets = [
-    ReadingPalette('纸白', 0xff303b35, 0xfff7f5ef),
+    ReadingPalette('纸白', 0xff34322f, 0xfff7f5ef),
     ReadingPalette('羊皮纸', 0xff594833, 0xfff0e6cf),
     ReadingPalette('柔和灰', 0xff4b4b48, 0xffe8e6e1),
     ReadingPalette('竹青', 0xff304b3b, 0xffd4e4d5),
     ReadingPalette('雾蓝', 0xff354653, 0xffdce6ed),
     ReadingPalette('深海', 0xffaab5c4, 0xff202a37),
-    ReadingPalette('墨色', 0xff999999, 0xff171c1b),
+    ReadingPalette('墨色', 0xff999999, 0xff161616),
     ReadingPalette('午夜', 0xff999999, 0xff000000),
   ];
 }

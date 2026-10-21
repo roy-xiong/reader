@@ -1,6 +1,6 @@
 # 阅读
 
-面向 Android、macOS 与 iOS 的本地电子书阅读器。阅读页只保留正文和进度；独立设置页集中管理外观、排版和密码。
+面向 Android、macOS 与 iOS 的本地电子书阅读器。阅读页只保留正文和进度；设置首页按字体、背景、翻页、界面、文件同步、密码和关于分类；各阅读样式子页共用一个完整预览。
 
 ## 功能
 
@@ -29,7 +29,7 @@
 
 ## 构建与下载
 
-GitHub Actions 的 `Build Reader` 在 main 推送和手动触发时运行：静态检查 → 格式/存储/分页/响应式/上传协议测试 → 所选平台构建。当前 main 推送默认构建 macOS 和 Android，发布到 `preview-macos-android`；手动运行可选择 macos-android、macos、android、ios 或 all，全部平台成功才更新 `preview`。
+GitHub Actions 的 `Build Reader` 在 main 推送和手动触发时运行：静态检查 → 格式/存储/分页/响应式/上传协议测试 → 所选平台构建。当前 main 推送默认构建 Android、未签名 iOS 和 macOS 三端；三端全部成功才更新 `preview`。手动运行仍可选择 macos-android、macos、android、ios 或 all，各平台组合分别发布。
 
 [测试版下载](https://github.com/roy-xiong/reader/releases/tag/preview)
 
@@ -91,7 +91,7 @@ Reader 使用 GPL-3.0-or-later，第三方许可证见 [THIRD_PARTY_NOTICES.md](
 
 ## 坚果云同步（1.5.0）
 
-设置 → 坚果云同步。WebDAV 默认地址 `https://dav.jianguoyun.com/dav/`。使用坚果云账号和第三方应用密码，首次创建专属目录并保存恢复码；其他设备用相同账号、目录和恢复码加入。凭据和密钥只保存在 Keychain / Android 安全存储；云端资源和元数据认证加密，无自建服务器。
+设置 → 文件与同步 → 坚果云同步。WebDAV 默认地址 `https://dav.jianguoyun.com/dav/`。使用坚果云账号和第三方应用密码，首次创建专属目录并保存恢复码；其他设备用相同账号、目录和恢复码加入。凭据和密钥只保存在 Keychain / Android 安全存储；云端资源和元数据认证加密，无自建服务器。
 
 阅读进度自动写入本机待传队列，前台联网后上传；连续快速翻页约 500ms 合并一次最新位置，服务限流时退避重试。打开书籍前按阅读更新时间检查云端，用户确认后才追到云端位置，百分比不参与判断。断网或检查耗时较长时可继续本机阅读。
 
@@ -100,3 +100,13 @@ Reader 使用 GPL-3.0-or-later，第三方许可证见 [THIRD_PARTY_NOTICES.md](
 `CloudStore` 隔离网盘协议，`CloudAssets` 管理分块与校验，`CloudSyncController` 管理手动传输和自动进度队列。每台设备写自己的 head / 进度，避免两个设备覆盖同一个 JSON；元数据保留未知字段，协议不兼容时停止读取。删除本地副本不会自动删除云端资料；当前没有远端删除入口。
 
 验证包含本地 HTTP WebDAV 服务、两个独立仓库、加密篡改检测、较小但时间更新的进度、重启补传以及照片组／字体传输。尚未使用真实坚果云账号做端到端验证，服务配额和授权以实际账号为准。
+
+## 1.6.0 设置与阅读外观
+
+深色界面使用中性炭黑与灰阶容器、柔和暖灰强调色；正文默认 `#999999`。参考 [Kobo 的夜间阅读模式](https://help.kobo.com/hc/en-us/articles/360017708014-Adjust-screen-brightness-and-page-appearance-on-the-Kobo-Books-app-for-iOS) 和 [Apple Books 的主题与排版设置](https://support.apple.com/guide/iphone/read-books-iphc1af7c57/ios)，配色由本应用独立定义，已有自定义文字色与背景色继续保留。
+
+设置首页只有分类入口。字体与排版、背景与颜色、翻页与操作使用同一个预览组件，统一呈现字体、字号、粗细、字距、行距、段距、横竖排、背景色、照片、遮罩和透明度，可直接试翻。手机在顶部固定预览、下方滚动选项，宽窗口左右分栏；键盘导致可用高度过小时暂时收起预览。试翻不改变书籍进度或照片循环位置。
+
+正式阅读区域以系统安全区为边界，左右上下使用相同边距，进度信息位于底部留白内。取消大窗口的额外正文宽度限制；正文软换行两端对齐，段落末行和章节标题保持自然对齐，续页排版上下文不计入正文、语义或进度。
+
+iOS 在“背景与颜色”新增“相册访问权限”，可主动申请完整照片权限，已选照片受限时可管理选择或前往系统设置。普通选图保留系统 PHPicker，不将完整授权作为前置条件；读取失败会显示数量和重试提示，并保留已成功导入的照片。权限最终由系统和用户选择决定。

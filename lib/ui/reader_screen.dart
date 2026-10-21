@@ -15,6 +15,7 @@ import 'page_flip_session.dart';
 import 'reader_page.dart';
 import 'reader_pager.dart';
 import 'reading_backdrop.dart';
+import 'reading_style.dart';
 
 /// 阅读页默认仅显示正文和进度，点击中央时才显示临时操作栏。
 class ReaderScreen extends StatefulWidget {
@@ -638,31 +639,12 @@ class ReaderScreenState extends State<ReaderScreen> {
     listenable: model,
     builder: (context, _) {
       final s = model.settings;
-      final dark = Theme.of(context).brightness == Brightness.dark;
-      final background = s.backgroundColor == null
-          ? (dark ? const Color(0xff171c1b) : const Color(0xfff7f5ef))
-          : Color(s.backgroundColor!);
-      final int? customText = model.currentPhoto != null
-          ? s.photoTextColor ?? s.textColor
-          : s.textColor;
-      final foreground = customText != null
-          ? Color(customText)
-          : model.currentPhoto != null
-          ? const Color(0xffe7e7e7)
-          : dark
-          ? const Color(0xff999999)
-          : const Color(0xff303b35);
-      final style = TextStyle(
-        fontFamily: s.fontId != null && s.fontId == model.loadedFontId
-            ? 'user_${s.fontId}'
-            : null,
-        fontSize: s.fontSize,
-        fontWeight:
-            FontWeight.values[(s.fontWeight / 100).round().clamp(1, 9) - 1],
-        height: s.lineHeight,
-        letterSpacing: s.letterSpacing,
-        color: foreground,
+      final resolved = ReadingStyle.resolve(
+        model,
+        Theme.of(context).brightness,
       );
+      final background = resolved.background, foreground = resolved.foreground;
+      final style = resolved.text;
       return PopScope(
         canPop: !model.locked && _preview == null,
         onPopInvokedWithResult: (didPop, _) {
@@ -745,88 +727,98 @@ class ReaderScreenState extends State<ReaderScreen> {
                           ),
                         )
                       else
-                        Column(
-                          children: [
-                            Expanded(
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final padding = constraints.maxWidth > 700
-                                      ? 46.0
-                                      : 24.0;
-                                  final width = max(
-                                    1.0,
-                                    min(
-                                      860.0,
-                                      constraints.maxWidth - padding * 2,
-                                    ),
-                                  );
-                                  final height = max(
-                                    1.0,
-                                    constraints.maxHeight - 32,
-                                  );
-                                  final scaler = MediaQuery.textScalerOf(
-                                    context,
-                                  );
-                                  _ensureLayout(width, height, style, scaler);
-                                  final page = current;
-                                  return Center(
-                                    child: SizedBox(
-                                      width: width,
-                                      height: height,
-                                      child: page == null
-                                          ? Center(
-                                              child: SizedBox(
-                                                width: 18,
-                                                height: 18,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                      strokeWidth: 1.5,
-                                                      color: foreground,
-                                                    ),
-                                              ),
-                                            )
-                                          : ReaderPager(
-                                              key: pager,
-                                              effect: s.pageEffect,
-                                              particleDirectional:
-                                                  s.particleDirectional,
-                                              background: background.withValues(
-                                                alpha: s.backgroundOpacity,
-                                              ),
-                                              onTurn: _turn,
-                                              onToggle: () => setState(
-                                                () => controls = !controls,
-                                              ),
-                                              child: ReaderPage(
-                                                key: ValueKey(
-                                                  '${page.start}/$layoutKey',
-                                                ),
-                                                page: page,
-                                                width: width,
-                                                style: style,
-                                                scaler: scaler,
-                                              ),
-                                            ),
-                                    ),
-                                  );
-                                },
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            // 以安全区域为边界，四边使用相同的留白；页码放在底部留白内。
+                            final margin = min(
+                              constraints.maxWidth > 700 ? 46.0 : 24.0,
+                              max(
+                                0.0,
+                                (min(
+                                          constraints.maxWidth,
+                                          constraints.maxHeight,
+                                        ) -
+                                        1) /
+                                    2,
                               ),
-                            ),
-                            SizedBox(
-                              height: 34,
-                              child: Center(
-                                child: Text(
-                                  _progressLabel(),
-                                  key: const ValueKey('reading-progress'),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: foreground.withValues(alpha: .65),
-                                    letterSpacing: .5,
+                            );
+                            final width = max(
+                              1.0,
+                              constraints.maxWidth - margin * 2,
+                            );
+                            final height = max(
+                              1.0,
+                              constraints.maxHeight - margin * 2,
+                            );
+                            final scaler = MediaQuery.textScalerOf(context);
+                            _ensureLayout(width, height, style, scaler);
+                            final page = current;
+                            return Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Positioned(
+                                  left: margin,
+                                  right: margin,
+                                  top: margin,
+                                  bottom: margin,
+                                  child: page == null
+                                      ? Center(
+                                          child: SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 1.5,
+                                              color: foreground,
+                                            ),
+                                          ),
+                                        )
+                                      : ReaderPager(
+                                          key: pager,
+                                          effect: s.pageEffect,
+                                          particleDirectional:
+                                              s.particleDirectional,
+                                          background: background.withValues(
+                                            alpha: s.backgroundOpacity,
+                                          ),
+                                          onTurn: _turn,
+                                          onToggle: () => setState(
+                                            () => controls = !controls,
+                                          ),
+                                          child: ReaderPage(
+                                            key: ValueKey(
+                                              '${page.start}/$layoutKey',
+                                            ),
+                                            page: page,
+                                            width: width,
+                                            style: style,
+                                            scaler: scaler,
+                                          ),
+                                        ),
+                                ),
+                                Positioned(
+                                  left: margin,
+                                  right: margin,
+                                  bottom: 0,
+                                  height: margin,
+                                  child: Center(
+                                    child: Text(
+                                      _progressLabel(),
+                                      key: const ValueKey('reading-progress'),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: foreground.withValues(
+                                          alpha: .65,
+                                        ),
+                                        letterSpacing: .5,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          ],
+                              ],
+                            );
+                          },
                         ),
                       if (_preview != null) ...[
                         Positioned.fill(

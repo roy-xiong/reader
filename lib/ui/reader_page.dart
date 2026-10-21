@@ -48,16 +48,19 @@ class _TextPagePainter extends CustomPainter {
       return;
     }
     for (final fragment in page.fragments) {
-      final painter = TextPainter(
-        text: TextSpan(
-          text: fragment.text,
-          style: Pagination.fragmentStyle(style, fragment.isHeading),
-        ),
-        textDirection: TextDirection.ltr,
-        textScaler: scaler,
-      )..layout(maxWidth: width);
+      final painter = Pagination.textPainter(
+        text: fragment.text + fragment.layoutTail,
+        width: width,
+        style: style,
+        heading: fragment.isHeading,
+        scaler: scaler,
+      );
       try {
+        canvas.save();
+        // 下一行仅用于保留软换行语义，必须裁掉，防止跨页文字提前绘制。
+        canvas.clipRect(Rect.fromLTWH(0, fragment.y, width, fragment.height));
         painter.paint(canvas, Offset(0, fragment.y));
+        canvas.restore();
       } finally {
         painter.dispose();
       }

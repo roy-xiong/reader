@@ -7,6 +7,7 @@ import 'data/library_repository.dart';
 import 'data/platform_service.dart';
 import 'domain/models.dart';
 import 'ui/app_model.dart';
+import 'ui/core/reader_theme.dart';
 import 'ui/lock_screen.dart';
 import 'ui/reader_screen.dart';
 import 'ui/settings_screen.dart';
@@ -104,6 +105,9 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     model.cloud.setPaused(state != AppLifecycleState.resumed);
+    if (state == AppLifecycleState.resumed && Platform.isIOS) {
+      unawaited(model.refreshPhotoAccess());
+    }
     if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
       if (defaultTargetPlatform == TargetPlatform.macOS) {
@@ -224,8 +228,8 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       navigatorKey: navigator,
       scaffoldMessengerKey: messenger,
-      theme: _theme(Brightness.light),
-      darkTheme: _theme(Brightness.dark),
+      theme: ReaderTheme.build(Brightness.light),
+      darkTheme: ReaderTheme.build(Brightness.dark),
       themeMode: switch (model.settings.theme) {
         'dark' => ThemeMode.dark,
         'light' => ThemeMode.light,
@@ -268,51 +272,6 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
         ),
       ),
       home: ShelfScreen(model: model, openBook: _open, openSettings: _settings),
-    ),
-  );
-}
-
-ThemeData _theme(Brightness brightness) {
-  final dark = brightness == Brightness.dark;
-  final colors =
-      ColorScheme.fromSeed(
-        seedColor: const Color(0xff4f7568),
-        brightness: brightness,
-        surface: dark ? const Color(0xff171c1b) : const Color(0xfff7f5ef),
-      ).copyWith(
-        onSurface: dark ? const Color(0xff999999) : null,
-        onSurfaceVariant: dark ? const Color(0xff999999) : null,
-      );
-  final popupShape = RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(16),
-  );
-  return ThemeData(
-    useMaterial3: true,
-    colorScheme: colors,
-    scaffoldBackgroundColor: colors.surface,
-    popupMenuTheme: PopupMenuThemeData(
-      shape: popupShape,
-      color: colors.surfaceContainerHigh,
-      elevation: 6,
-      menuPadding: const EdgeInsets.symmetric(vertical: 8),
-    ),
-    menuTheme: MenuThemeData(
-      style: MenuStyle(shape: WidgetStatePropertyAll(popupShape)),
-    ),
-    dropdownMenuTheme: DropdownMenuThemeData(
-      menuStyle: MenuStyle(shape: WidgetStatePropertyAll(popupShape)),
-    ),
-    appBarTheme: AppBarTheme(
-      backgroundColor: colors.surface,
-      scrolledUnderElevation: 0,
-    ),
-    inputDecorationTheme: InputDecorationTheme(
-      filled: true,
-      fillColor: colors.surfaceContainerHighest.withValues(alpha: .45),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
-      ),
     ),
   );
 }
