@@ -215,6 +215,38 @@ void main() {
       await dir.delete(recursive: true);
     }
   });
+  test('本机保存失败时连接必须回到未连接状态，不能留下已关闭的客户端', () async {
+    final dir = await Directory.systemTemp.createTemp('cloud_local_failure');
+    final blocked = File('${dir.path}/blocked');
+    await blocked.writeAsString('occupied');
+    final remote = MemoryDav();
+    final controller = CloudSyncController(
+      directory: Directory(blocked.path),
+      sources: (_) async => [],
+      receive: (_, _) async {},
+      isUnavailable: () => false,
+      secrets: MemorySecrets(),
+      storeFactory: (_, _, _) => remote.client(),
+    );
+    try {
+      await expectLater(
+        controller.connect(
+          server: 'https://e.test/',
+          username: 'a',
+          password: 'p',
+          root: '阅读',
+          recoveryCode: CloudCrypto.newRecoveryCode(),
+          create: true,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(controller.connected, isFalse);
+      expect(controller.busy, isFalse);
+    } finally {
+      controller.dispose();
+      await dir.delete(recursive: true);
+    }
+  });
   test('错误恢复码不会接入已有云库，上传失败不发布半个目录', () async {
     final dir = await Directory.systemTemp.createTemp('cloud_failures');
     final remote = MemoryDav();

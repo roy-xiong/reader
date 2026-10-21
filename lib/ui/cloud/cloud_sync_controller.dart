@@ -247,6 +247,9 @@ class CloudSyncController extends ChangeNotifier {
       status = '已连接；资源由你选择上传或下载';
     } catch (e) {
       candidate?.close();
+      if (identical(_store, candidate)) {
+        _store = null;
+      }
       error = _message(e);
       rethrow;
     } finally {
