@@ -38,8 +38,23 @@ class ReaderScreenState extends State<ReaderScreen> {
   String requestedScript = '';
   int conversionGeneration = 0;
   int _sourceOffset(int display) => offsets.toSource(display);
-  void _recordProgress(int display) =>
-      model.updateProgress(book.id, _sourceOffset(display));
+  void _recordProgress(int display) {
+    final source = sourceDocument;
+    final offset = _sourceOffset(display);
+    final quote = source == null
+        ? ''
+        : source.text.substring(
+            offset.clamp(0, source.text.length),
+            min(source.text.length, offset + 48),
+          );
+    model.updateProgress(
+      book.id,
+      offset,
+      quote: quote,
+      parseVersion: source?.parseVersion ?? 2,
+    );
+  }
+
   String? error, layoutKey;
   List<ReadingPage> pages = [];
   int pageIndex = 0, anchor = 0, generation = 0;

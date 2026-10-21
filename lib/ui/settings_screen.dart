@@ -10,6 +10,7 @@ import 'page_effect_demo.dart';
 import 'appearance_settings.dart';
 import 'wifi_upload_screen.dart';
 import 'reader_color_picker.dart';
+import 'cloud/cloud_sync_screen.dart';
 
 /// 独立设置页。背景透明度和所有排版选项集中于此，阅读页保持简洁。
 class SettingsScreen extends StatelessWidget {
@@ -31,6 +32,22 @@ class SettingsScreen extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
                 children: [
+                  ListTile(
+                    key: const ValueKey('nutstore-settings-entry'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('坚果云同步'),
+                    subtitle: Text(
+                      model.cloud.connected
+                          ? model.cloud.status
+                          : '云端书架 · 进度自动上传 · 字体与照片手动传输',
+                    ),
+                    trailing: const ReaderIcon(ReaderGlyph.chevronRight),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => CloudSyncScreen(model: model),
+                      ),
+                    ),
+                  ),
                   _section(context, '外观'),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -401,7 +418,7 @@ class SettingsScreen extends StatelessWidget {
                   _section(context, '关于 Reader'),
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('阅读 1.4.1'),
+                    title: Text('阅读 1.5.0'),
                     subtitle: Text(
                       '本地书架 · 离线阅读\n支持 TXT、EPUB、MOBI、AZW / AZW3、HTML 的可重排文字。\n受 DRM 保护、纯图片和扫描版电子书暂不支持。',
                     ),
@@ -413,7 +430,7 @@ class SettingsScreen extends StatelessWidget {
                     onTap: () => showLicensePage(
                       context: context,
                       applicationName: '阅读',
-                      applicationVersion: '1.4.1',
+                      applicationVersion: '1.5.0',
                       applicationLegalese: 'GPL-3.0-or-later',
                     ),
                   ),

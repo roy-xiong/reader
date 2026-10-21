@@ -12,6 +12,7 @@ import 'ui/reader_screen.dart';
 import 'ui/settings_screen.dart';
 import 'ui/shelf_screen.dart';
 import 'ui/wifi_upload_screen.dart';
+import 'ui/cloud/cloud_progress_prompt.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,7 @@ Future<void> main() async {
     final model = AppModel(LibraryRepository(Directory(path)), platform);
     await model.initialize();
     runApp(ReaderApp(model: model));
+    unawaited(model.cloud.initialize());
   } catch (error) {
     runApp(
       MaterialApp(
@@ -57,7 +59,7 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
   final navigator = GlobalKey<NavigatorState>();
   final messenger = GlobalKey<ScaffoldMessengerState>();
   GlobalKey<ReaderScreenState>? reader;
-  bool settingsOpen = false;
+  bool settingsOpen = false, checkingCloudProgress = false;
   AppModel get model => widget.model;
   @override
   void initState() {
@@ -101,6 +103,7 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    model.cloud.setPaused(state != AppLifecycleState.resumed);
     if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
       if (defaultTargetPlatform == TargetPlatform.macOS) {
@@ -169,9 +172,18 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
   }
 
   Future<void> _open(BookRecord book) async {
-    if (model.locked || model.busy) {
+    if (model.locked || model.busy || checkingCloudProgress) {
       return;
     }
+    final openContext = navigator.currentContext;
+    if (openContext == null) return;
+    checkingCloudProgress = true;
+    try {
+      if (!await checkCloudProgress(openContext, model, book)) return;
+    } finally {
+      checkingCloudProgress = false;
+    }
+    if (!mounted || model.locked) return;
     reader = GlobalKey<ReaderScreenState>();
     await model.platform.readingMode(true);
     try {

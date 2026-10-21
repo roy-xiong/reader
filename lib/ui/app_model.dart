@@ -12,6 +12,12 @@ import '../domain/models.dart';
 import '../domain/book_relocation.dart';
 import '../domain/reading_appearance.dart';
 import '../data/background_image_service.dart';
+import '../data/cloud/cloud_assets.dart';
+import '../data/cloud/cloud_secrets.dart';
+import '../data/cloud/webdav_store.dart';
+import '../domain/cloud/cloud_models.dart';
+import 'cloud/cloud_sync_controller.dart';
+import 'dart:convert';
 
 /// 应用状态的唯一写入口。界面仅观察状态，持久化操作始终经过仓库串行队列。
 class AppModel extends ChangeNotifier {
@@ -20,8 +26,21 @@ class AppModel extends ChangeNotifier {
     this.platform, {
     FontService? fontService,
     BackgroundImageService? imageService,
+    CloudSecrets? cloudSecrets,
+    CloudStore Function(String, String, String)? cloudStoreFactory,
   }) : fontService = fontService ?? FontService(),
-       imageService = imageService ?? BackgroundImageService();
+       imageService = imageService ?? BackgroundImageService() {
+    cloud = CloudSyncController(
+      directory: Directory('${repository.root.path}/cloud'),
+      sources: _cloudSources,
+      receive: _receiveCloudItem,
+      isUnavailable: () => busy || locked,
+      secrets: cloudSecrets,
+      storeFactory: cloudStoreFactory,
+    );
+    cloud.addListener(changed);
+  }
+  late final CloudSyncController cloud;
   final FontService fontService;
   final BackgroundImageService imageService;
   List<BackgroundPhoto> _photos = [];
@@ -219,7 +238,12 @@ class AppModel extends ChangeNotifier {
 
   BookRecord? findBook(String id) =>
       _books.where((b) => b.id == id).firstOrNull;
-  void updateProgress(String id, int offset) {
+  void updateProgress(
+    String id,
+    int offset, {
+    String quote = '',
+    int parseVersion = 2,
+  }) {
     _books = _books
         .map(
           (b) => b.id == id
@@ -230,6 +254,17 @@ class AppModel extends ChangeNotifier {
               : b,
         )
         .toList();
+    final record = findBook(id);
+    if (record != null) {
+      cloud.recordProgress(
+        bookId: id,
+        offset: record.offset,
+        length: record.length,
+        updatedAt: record.lastOpened,
+        quote: quote,
+        parseVersion: parseVersion,
+      );
+    }
     _scheduleSave();
     changed();
   }
@@ -493,7 +528,9 @@ class AppModel extends ChangeNotifier {
           imported++;
           addedIds.add(photo.id);
           if (!_photos.any((item) => item.id == photo.id)) {
-            _photos = [..._photos, photo];
+            if (!_photos.any((p) => p.id == photo.id)) {
+              _photos = [..._photos, photo];
+            }
           }
         } catch (_) {
           failures.add(p.basename(paths[i]));
@@ -726,6 +763,7 @@ class AppModel extends ChangeNotifier {
   void lock() {
     if (hasPin) {
       locked = true;
+      cloud.setPaused(true);
       changed();
     }
     unawaited(flush().catchError((Object _) {}));
@@ -749,6 +787,7 @@ class AppModel extends ChangeNotifier {
         await flush();
         if (unlock) {
           locked = false;
+          cloud.setPaused(false);
         }
       } else {
         failedAttempts++;
@@ -811,6 +850,205 @@ class AppModel extends ChangeNotifier {
     });
   }
 
+  /// 资源只通过设置页主动上传；书目不夹带本地密码或自动应用的阅读位置；书签随手动书籍备份。
+  Future<List<CloudSource>> _cloudSources(String kind) async {
+    if (kind == 'book') {
+      for (final book in _books) {
+        if (book.lastOpened > 0) {
+          cloud.recordProgress(
+            bookId: book.id,
+            offset: book.offset,
+            length: book.length,
+            updatedAt: book.lastOpened,
+          );
+        }
+      }
+      return [
+        for (final book in _books)
+          CloudSource(
+            'book',
+            book.id,
+            book.title,
+            {
+              'record': {
+                ...book.toJson(),
+                'offset': 0,
+                'lastOpened': 0,
+                'bookmarks': book.bookmarks.map((b) => b.toJson()).toList(),
+              },
+            },
+            {
+              'original': File(
+                p.join(
+                  p.dirname(repository.bookPath(book.id)),
+                  'original.${book.format.toLowerCase()}',
+                ),
+              ),
+              'document': File(repository.bookPath(book.id)),
+            },
+          ),
+      ];
+    }
+    if (kind == 'font') {
+      return [
+        for (final font in _fonts)
+          CloudSource(
+            'font',
+            font.id,
+            font.name,
+            {'record': font.toJson()},
+            {'font': repository.fontFile(font.id)},
+          ),
+      ];
+    }
+    if (kind == 'photo') {
+      return [
+        for (final photo in _photos)
+          CloudSource(
+            'photo',
+            photo.id,
+            photo.name,
+            {
+              'record': photo.toJson(),
+              'groups': _photoGroups.map((g) => g.toJson()).toList(),
+            },
+            {'photo': repository.backgroundFile(photo.id)},
+          ),
+      ];
+    }
+    throw const FormatException('不支持的上传类型');
+  }
+
+  bool hasCloudItem(CloudItem item) => switch (item.kind) {
+    'book' => _books.any((b) => b.id == item.id),
+    'font' => _fonts.any((f) => f.id == item.id),
+    'photo' => _photos.any((p) => p.id == item.id),
+    _ => false,
+  };
+
+  /// 先验证全部下载内容，再写入应用存储；失败不覆盖已有书架项目。
+  Future<void> _receiveCloudItem(
+    CloudItem item,
+    Map<String, File> files,
+  ) async {
+    if (hasCloudItem(item) && item.kind != 'photo') return;
+    busy = true;
+    busyLabel = '保存云端${item.name}';
+    changed();
+    final previousBooks = _books,
+        previousFonts = _fonts,
+        previousPhotos = _photos,
+        previousGroups = _photoGroups;
+    try {
+      final record = Map<String, dynamic>.from(item.metadata['record'] as Map);
+      if (record['id'] != item.id) throw const FormatException('资源归属校验失败');
+      if (item.kind == 'book') {
+        final book = BookRecord.fromJson(record);
+        final original = files['original'], cache = files['document'];
+        if (original == null ||
+            cache == null ||
+            !RegExp(
+              r'^(TXT|EPUB|MOBI|AZW|AZW3|HTML|HTM)$',
+            ).hasMatch(book.format)) {
+          throw const FormatException('云端书籍格式不受支持');
+        }
+        if (await CloudAssets.hash(original) != item.id) {
+          throw const FormatException('原始书籍校验失败');
+        }
+        final document = await Isolate.run(
+          () async => BookDocument.fromJson(
+            Map<String, dynamic>.from(
+              jsonDecode(await cache.readAsString()) as Map,
+            ),
+          ),
+        );
+        if (document.text.length != book.length) {
+          throw const FormatException('书籍定位版本不一致');
+        }
+        final folder = Directory(p.dirname(repository.bookPath(book.id)));
+        await folder.create(recursive: true);
+        await original.copy(
+          p.join(folder.path, 'original.${book.format.toLowerCase()}'),
+        );
+        await cache.copy(repository.bookPath(book.id));
+        _books = [..._books, book];
+      } else if (item.kind == 'font') {
+        final font = ReaderFont.fromJson(record), file = files['font'];
+        if (file == null) throw const FormatException('字体文件缺失');
+        final id = await repository.importFont(file.path);
+        if (id != item.id) throw const FormatException('字体校验失败');
+        _fonts = [..._fonts, font];
+      } else if (item.kind == 'photo') {
+        final photo = BackgroundPhoto.fromJson(record), file = files['photo'];
+        if (file == null || await CloudAssets.hash(file) != item.id) {
+          throw const FormatException('照片校验失败');
+        }
+        // 用解码器验证格式，但保留原阅读用副本的字节，确保多端内容标识一致。
+        await imageService.normalize(file);
+        final target = repository.backgroundFile(photo.id);
+        await target.parent.create(recursive: true);
+        await file.copy(target.path);
+        if (!_photos.any((p) => p.id == photo.id)) {
+          _photos = [..._photos, photo];
+        }
+        final available = _photos.map((p) => p.id).toSet();
+        for (final json in item.metadata['groups'] as List? ?? []) {
+          final group = BackgroundPhotoGroup.fromJson(
+            Map<String, dynamic>.from(json as Map),
+          );
+          final members = group.photoIds.where(available.contains).toSet();
+          _photoGroups = [
+            ..._photoGroups.where((g) => g.id != group.id),
+            BackgroundPhotoGroup(
+              id: group.id,
+              name: group.name,
+              photoIds: List.unmodifiable(members),
+            ),
+          ];
+        }
+      }
+      await flush();
+    } catch (_) {
+      _books = previousBooks;
+      _fonts = previousFonts;
+      _photos = previousPhotos;
+      _photoGroups = previousGroups;
+      rethrow;
+    } finally {
+      busy = false;
+      busyLabel = null;
+      changed();
+    }
+  }
+
+  /// 用户同意追到云端后才更改位置。若解析器版本不同，用上下文或比例作可解释的定位回退。
+  Future<void> followCloudProgress(CloudProgress progress) async {
+    final book = findBook(progress.bookId);
+    if (book == null) return;
+    var offset = progress.offset;
+    if (book.length != progress.length) {
+      final doc = await openBook(book);
+      final quote = progress.quote.isEmpty
+          ? -1
+          : doc.text.indexOf(progress.quote);
+      offset = quote >= 0
+          ? quote
+          : (progress.offset / progress.length * doc.text.length).round();
+    }
+    _books = _books
+        .map(
+          (b) => b.id == book.id
+              ? b.copyWith(
+                  offset: offset.clamp(0, max(0, b.length - 1)),
+                  lastOpened: progress.updatedAt,
+                )
+              : b,
+        )
+        .toList();
+    await flush();
+    changed();
+  }
+
   String _message(Object e) => e is FormatException
       ? e.message
       : e is PlatformException
@@ -820,6 +1058,8 @@ class AppModel extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _saveTimer?.cancel();
+    cloud.removeListener(changed);
+    cloud.dispose();
     platform.dispose();
     super.dispose();
   }

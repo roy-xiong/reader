@@ -5,14 +5,14 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 构建平台（当前先验收 macOS）
+        description: 构建平台（默认 macOS 与 Android）
         type: choice
-        default: macos
-        options: [macos, all, android, ios]
+        default: macos-android
+        options: [macos-android, macos, all, android, ios]
 permissions:
   contents: read
 concurrency:
-  group: reader-${{ github.ref }}-${{ inputs.platform || 'macos' }}
+  group: reader-${{ github.ref }}-${{ inputs.platform || 'macos-android' }}
   cancel-in-progress: true
 env:
   PUB_HOSTED_URL: https://pub.dev
@@ -37,7 +37,7 @@ jobs:
           path: build/qa/
           if-no-files-found: ignore
   android:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'android') }}
+    if: ${{ github.event_name == 'push' || inputs.platform == 'macos-android' || inputs.platform == 'all' || inputs.platform == 'android' }}
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -70,7 +70,7 @@ jobs:
           path: dist/
           compression-level: 0
   macos:
-    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos' }}
+    if: ${{ github.event_name == 'push' || inputs.platform == 'macos-android' || inputs.platform == 'all' || inputs.platform == 'macos' }}
     needs: validate
     runs-on: macos-15
     timeout-minutes: 35
@@ -151,7 +151,7 @@ jobs:
       - name: Publish installable preview
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_PLATFORM: ${{ inputs.platform || 'macos' }}
+          BUILD_PLATFORM: ${{ inputs.platform || 'macos-android' }}
         run: |
           release_tag="preview-$BUILD_PLATFORM"
           if [ "$BUILD_PLATFORM" = all ]; then release_tag=preview; fi

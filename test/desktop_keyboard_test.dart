@@ -40,6 +40,8 @@ void main() {
       await tester.pumpAndSettle();
       final upload = find.text('Wi-Fi 上传书籍和字体');
       await tester.scrollUntilVisible(upload, 350);
+      await tester.ensureVisible(upload);
+      await tester.pumpAndSettle();
       await tester.tap(upload);
       await tester.pumpAndSettle();
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -126,6 +128,8 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: SettingsScreen(model: model)));
       final local = find.byKey(const ValueKey('local-book-import'));
       await tester.scrollUntilVisible(local, 250);
+      await tester.ensureVisible(local);
+      await tester.pumpAndSettle();
       await tester.tap(local);
       await tester.pumpAndSettle();
       expect(platform.bookPicks, 1);

@@ -1,7 +1,7 @@
 name: reader
 description: "Android 与 macOS 本地电子书阅读器。"
 publish_to: none
-version: 1.4.1+18
+version: 1.5.0+19
 
 environment:
   sdk: ^3.12.2
@@ -12,6 +12,8 @@ dependencies:
   archive: 4.0.7
   characters: 1.4.1
   crypto: 3.0.7
+  cryptography: 2.9.0
+  flutter_secure_storage: 11.2.0
   dart_mobi: 1.0.2
   enough_convert: 1.6.0
   html: 0.15.6

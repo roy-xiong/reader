@@ -210,6 +210,8 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(selector);
+    await tester.pumpAndSettle();
     await tester.tap(selector);
     await tester.pumpAndSettle();
     await tester.tap(find.text('从右向左').last);
