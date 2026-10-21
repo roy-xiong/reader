@@ -29,7 +29,7 @@
 
 ## 构建与下载
 
-GitHub Actions 的 `Build Reader` 在 main 推送和手动触发时运行：静态检查 → 格式/存储/分页/响应式/上传协议测试 → Android Release APK、macOS 通用 DMG/ZIP、iOS 未签名 IPA → `preview` 预发布。
+GitHub Actions 的 `Build Reader` 在 main 推送和手动触发时运行：静态检查 → 格式/存储/分页/响应式/上传协议测试 → 所选平台构建。当前 main 推送默认仅构建 macOS 通用 DMG/ZIP，发布到 `preview-macos`；手动运行可选择 macos、android、ios 或 all，全部平台成功才更新 `preview`。
 
 [测试版下载](https://github.com/roy-xiong/reader/releases/tag/preview)
 

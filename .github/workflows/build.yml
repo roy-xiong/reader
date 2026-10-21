@@ -3,10 +3,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 构建平台（当前先验收 macOS）
+        type: choice
+        default: macos
+        options: [macos, all, android, ios]
 permissions:
   contents: read
 concurrency:
-  group: reader-${{ github.ref }}
+  group: reader-${{ github.ref }}-${{ inputs.platform || 'macos' }}
   cancel-in-progress: true
 env:
   PUB_HOSTED_URL: https://pub.dev
@@ -31,6 +37,7 @@ jobs:
           path: build/qa/
           if-no-files-found: ignore
   android:
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'android') }}
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -63,6 +70,7 @@ jobs:
           path: dist/
           compression-level: 0
   macos:
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos' }}
     needs: validate
     runs-on: macos-15
     timeout-minutes: 35
@@ -86,6 +94,7 @@ jobs:
           path: dist/
           compression-level: 0
   ios:
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'ios') }}
     needs: validate
     runs-on: macos-15
     timeout-minutes: 35
@@ -109,23 +118,32 @@ jobs:
           path: dist/
           compression-level: 0
   release:
-    needs: [android, macos, ios]
+    needs: [validate, android, macos, ios]
+    if: >-
+      ${{ always() && !cancelled() && needs.validate.result == 'success' &&
+          (needs.android.result == 'success' || needs.android.result == 'skipped') &&
+          (needs.macos.result == 'success' || needs.macos.result == 'skipped') &&
+          (needs.ios.result == 'success' || needs.ios.result == 'skipped') &&
+          (needs.android.result == 'success' || needs.macos.result == 'success' || needs.ios.result == 'success') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
+        if: ${{ needs.android.result == 'success' }}
         with:
           pattern: reader-android
           path: dist
           merge-multiple: true
       - uses: actions/download-artifact@v4
+        if: ${{ needs.macos.result == 'success' }}
         with:
           pattern: reader-macos
           path: dist
           merge-multiple: true
       - uses: actions/download-artifact@v4
+        if: ${{ needs.ios.result == 'success' }}
         with:
           pattern: reader-ios
           path: dist
@@ -133,8 +151,11 @@ jobs:
       - name: Publish installable preview
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD_PLATFORM: ${{ inputs.platform || 'macos' }}
         run: |
-          gh release view preview >/dev/null 2>&1 || gh release create preview --prerelease --target "$GITHUB_SHA" --title 'Reader 测试版' --notes-file tool/release-notes.md
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/preview" -f sha="$GITHUB_SHA" -F force=true
-          gh release edit preview --target "$GITHUB_SHA" --title "Reader 测试版 · Build $GITHUB_RUN_NUMBER" --notes-file tool/release-notes.md
-          gh release upload preview dist/* --clobber
+          release_tag="preview-$BUILD_PLATFORM"
+          if [ "$BUILD_PLATFORM" = all ]; then release_tag=preview; fi
+          gh release view "$release_tag" >/dev/null 2>&1 || gh release create "$release_tag" --prerelease --target "$GITHUB_SHA" --title "Reader $BUILD_PLATFORM 测试版" --notes-file tool/release-notes.md
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$release_tag" -f sha="$GITHUB_SHA" -F force=true
+          gh release edit "$release_tag" --target "$GITHUB_SHA" --title "Reader $BUILD_PLATFORM 测试版 · Build $GITHUB_RUN_NUMBER" --notes-file tool/release-notes.md
+          gh release upload "$release_tag" dist/* --clobber
