@@ -16,6 +16,7 @@ class PageInkSnapshot {
   Int32List? _colors;
   final _paint = Paint()..filterQuality = FilterQuality.low;
   bool _disposed = false;
+  ui.Image? _inkMask;
 
   int get particleCount => (_rects?.length ?? 0) ~/ 4;
 
@@ -23,6 +24,7 @@ class PageInkSnapshot {
     ReaderPage page,
     Size size, {
     bool particles = false,
+    bool ink = false,
   }) async {
     if (!size.width.isFinite || !size.height.isFinite || size.isEmpty) {
       throw ArgumentError('正文尺寸无效');
@@ -48,6 +50,9 @@ class PageInkSnapshot {
       final snapshot = PageInkSnapshot._(image, size);
       if (particles) {
         await snapshot._sampleInk();
+      }
+      if (ink) {
+        await snapshot._prepareInkMask(page.page.start);
       }
       return snapshot;
     } catch (_) {
@@ -79,23 +84,24 @@ class PageInkSnapshot {
       for (var x = 0; x < image.width; x += cell) {
         final right = math.min(x + cell, image.width);
         final bottom = math.min(y + cell, image.height);
-        var hasInk = false;
-        for (var py = y; py < bottom && !hasInk; py++) {
+        int? inkX, inkY;
+        for (var py = y; py < bottom && inkX == null; py++) {
           for (var px = x; px < right; px++) {
             if (pixels[(py * image.width + px) * 4 + 3] > 8) {
-              hasInk = true;
+              inkX = px;
+              inkY = py;
               break;
             }
           }
         }
-        if (!hasInk) {
+        if (inkX == null || inkY == null) {
           continue;
         }
         rects.addAll([
-          x.toDouble(),
-          y.toDouble(),
-          right.toDouble(),
-          bottom.toDouble(),
+          inkX.toDouble(),
+          inkY.toDouble(),
+          (inkX + 1).toDouble(),
+          (inkY + 1).toDouble(),
         ]);
         // 坐标哈希使同一笔画的运动可重现，重绘时不会抖动。
         final seed = ((x * 73856093) ^ (y * 19349663)) & 0x7fffffff;
@@ -140,6 +146,16 @@ class PageInkSnapshot {
         colors == null) {
       return;
     }
+    // 原页先转成细墨点，新页末尾再补回清晰笔画，避免缩小粒子后出现突然缺字。
+    double smooth(double value) {
+      final t = value.clamp(0.0, 1.0);
+      return t * t * (3 - 2 * t);
+    }
+
+    final solid = incoming
+        ? smooth((progress - .68) / .32)
+        : 1 - smooth(progress / .28);
+    paint(canvas, target, opacity: solid);
     final scaleX = target.width / image.width;
     final scaleY = target.height / image.height;
     // 在等比录制的图像坐标内绘制，最后恢复到实际窗口尺寸。
@@ -157,12 +173,13 @@ class PageInkSnapshot {
           ? ((progress - .32 - delay) / (.68 - delay)).clamp(0.0, 1.0)
           : ((progress - delay) / (.68 - delay)).clamp(0.0, 1.0);
       final scatter = incoming ? 1 - local : local;
-      final alpha = incoming ? local * local : (1 - local) * (1 - local);
+      final alpha =
+          (incoming ? local * local : (1 - local) * (1 - local)) * (1 - solid);
       final angle = (m - .5) * scatter * 1.2;
       final scale = 1 - scatter * .48;
       final c = math.cos(angle) * scale, s = math.sin(angle) * scale;
       // 关闭方向感时在原笔画周围均匀散开，不保留水平或向上的整体漂移。
-      final radius = 8 + 22 * n;
+      final radius = 4 + 12 * n;
       final dx =
           (directional
               ? direction * (12 + 45 * n)
@@ -195,12 +212,114 @@ class PageInkSnapshot {
     canvas.restore();
   }
 
+  /// 低分辨率、可复现的柔边墨云遮罩。只录制一次，逐帧以色彩矩阵改变墨迹覆盖。
+  Future<void> _prepareInkMask(int seed) async {
+    const extent = 192.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawColor(const Color.fromRGBO(255, 255, 255, .1), BlendMode.src);
+    final random = math.Random(seed & 0x7fffffff);
+    for (var i = 0; i < 80; i++) {
+      final point = Offset(
+        random.nextDouble() * extent,
+        random.nextDouble() * extent,
+      );
+      final radius = 12 + random.nextDouble() * 30;
+      canvas.drawCircle(
+        point,
+        radius,
+        Paint()
+          ..shader = ui.Gradient.radial(point, radius, [
+            Color.fromRGBO(255, 255, 255, .45 + random.nextDouble() * .4),
+            const Color.fromRGBO(255, 255, 255, 0),
+          ]),
+      );
+    }
+    final picture = recorder.endRecording();
+    try {
+      _inkMask = await picture.toImage(extent.toInt(), extent.toInt());
+    } finally {
+      picture.dispose();
+    }
+  }
+
+  /// 水墨过渡不平移页面：笔画轻微扩散，再被柔和墨云逐片溶解或重新显现。
+  /// 图层仅包含文字透明度，不覆盖用户的照片或透明背景。
+  void paintWaterInk(
+    Canvas canvas,
+    Size target,
+    double progress, {
+    required bool incoming,
+  }) {
+    if (_disposed) {
+      return;
+    }
+    final gate = incoming
+        ? ((progress - .2) / .8).clamp(0.0, 1.0)
+        : (1 - progress / .8).clamp(0.0, 1.0);
+    if (gate <= 0) {
+      return;
+    }
+    final mask = _inkMask;
+    if (gate >= 1 || mask == null) {
+      paint(canvas, target, opacity: gate);
+      return;
+    }
+    final wet = 1 - gate;
+    final rect = Offset.zero & target;
+    canvas.saveLayer(rect, Paint());
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      rect,
+      Paint()
+        ..filterQuality = FilterQuality.low
+        ..imageFilter = ui.ImageFilter.compose(
+          outer: ui.ImageFilter.blur(sigmaX: wet * 1.8, sigmaY: wet * 1.4),
+          inner: ui.ImageFilter.dilate(radiusX: wet * .6, radiusY: wet * .6),
+        ),
+    );
+    canvas.drawImageRect(
+      mask,
+      Rect.fromLTWH(0, 0, mask.width.toDouble(), mask.height.toDouble()),
+      rect,
+      Paint()
+        ..filterQuality = FilterQuality.medium
+        ..blendMode = BlendMode.dstIn
+        ..colorFilter = ColorFilter.matrix([
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          5,
+          (gate * 1.4 - 1.2) * 5 * 255,
+        ]),
+    );
+    canvas.restore();
+  }
+
   void dispose() {
     if (_disposed) {
       return;
     }
     _disposed = true;
     image.dispose();
+    _inkMask?.dispose();
+    _inkMask = null;
     _rects = _transforms = _noise = null;
     _colors = null;
   }

@@ -99,8 +99,8 @@ void main() {
     final first = _page(0), next = _page(1);
     final snapshots = await tester.runAsync(
       () async => [
-        await PageInkSnapshot.capture(first, size, particles: true),
-        await PageInkSnapshot.capture(next, size, particles: true),
+        await PageInkSnapshot.capture(first, size, particles: true, ink: true),
+        await PageInkSnapshot.capture(next, size, particles: true, ink: true),
       ],
     );
     expect(snapshots, isNotNull);
@@ -109,7 +109,11 @@ void main() {
     final key = GlobalKey();
     final directory = Directory('build/qa/page-turn')
       ..createSync(recursive: true);
-    for (final effect in [PageTurnEffect.particles, PageTurnEffect.curl]) {
+    for (final effect in [
+      PageTurnEffect.particles,
+      PageTurnEffect.curl,
+      PageTurnEffect.ink,
+    ]) {
       for (var frame = 0; frame <= 8; frame++) {
         await tester.pumpWidget(
           Directionality(
@@ -161,7 +165,9 @@ void main() {
         );
         if (frame == 0 ||
             frame == 8 ||
-            (effect == PageTurnEffect.particles && frame == 4)) {
+            ((effect == PageTurnEffect.particles ||
+                    effect == PageTurnEffect.ink) &&
+                frame == 4)) {
           var inkPixels = 0;
           for (var offset = 3; offset < result.lengthInBytes; offset += 4) {
             if (result.getUint8(offset) > 0) {

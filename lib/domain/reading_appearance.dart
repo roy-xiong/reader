@@ -41,3 +41,33 @@ class BackgroundPhoto {
     );
   }
 }
+
+/// 可重用的背景图片组。同一张照片可属于多组；删除组不会删除照片文件。
+@immutable
+class BackgroundPhotoGroup {
+  const BackgroundPhotoGroup({
+    required this.id,
+    required this.name,
+    required this.photoIds,
+  });
+  final String id, name;
+  final List<String> photoIds;
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'photoIds': photoIds,
+  };
+  factory BackgroundPhotoGroup.fromJson(Map<String, dynamic> json) {
+    final id = json['id'];
+    if (id is! String || !RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id)) {
+      throw const FormatException('图片组标识损坏');
+    }
+    return BackgroundPhotoGroup(
+      id: id,
+      name: json['name'] is String ? json['name'] as String : '未命名图片组',
+      photoIds: List.unmodifiable(
+        (json['photoIds'] as List? ?? []).whereType<String>().toSet(),
+      ),
+    );
+  }
+}

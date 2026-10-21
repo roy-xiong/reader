@@ -122,6 +122,7 @@ class PageTurnTransition extends StatelessWidget {
           return stack([region(exposed, split, 1), region(moving, 0, split)]);
         case PageTurnEffect.curl:
         case PageTurnEffect.particles:
+        case PageTurnEffect.ink:
           if (previousInk == null || currentInk == null) {
             return raw < .5 ? previous : current;
           }
@@ -198,6 +199,9 @@ class _InkTransitionPainter extends CustomPainter {
         forward: forward,
         directional: particleDirectional,
       );
+    } else if (effect == PageTurnEffect.ink) {
+      previous.paintWaterInk(canvas, size, progress, incoming: false);
+      current.paintWaterInk(canvas, size, progress, incoming: true);
     } else {
       _curl(canvas, size);
     }

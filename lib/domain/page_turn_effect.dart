@@ -9,6 +9,7 @@ enum PageTurnEffect {
   stack('stack', '层叠翻页', '上层纸页滑出，下层纸页逐渐展开。', 340),
   fade('fade', '淡入淡出', '文字在原位置淡出，再显示下一页。', 260),
   particles('particles', '文字粒子消散', '文字笔画化作细小颗粒散开，再聚成下一页。', 620),
+  ink('ink', '水墨消散', '墨迹在原位轻轻晕开、溶解，再凝成下一页文字。', 700),
   none('none', '无动画', '立即切换到下一页。', 0);
 
   const PageTurnEffect(
@@ -20,7 +21,7 @@ enum PageTurnEffect {
   final String id, label, description;
   final int milliseconds;
   Duration get duration => Duration(milliseconds: milliseconds);
-  bool get needsInk => this == curl || this == particles;
+  bool get needsInk => this == curl || this == particles || this == ink;
 
   /// 未识别的存储值安全回退到默认效果，不影响其他阅读偏好。
   static PageTurnEffect parse(Object? value) =>

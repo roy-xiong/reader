@@ -20,6 +20,8 @@ class PageFlipSession extends ChangeNotifier {
     required this.paragraphSpacing,
     required this.layoutKey,
     this.index,
+    this.readingLayout = 'horizontal',
+    this.verticalDirection = 'rtl',
     List<ReadingPage> initialPages = const [],
   }) {
     _target = originOffset.clamp(0, document.text.length - 1);
@@ -35,7 +37,7 @@ class PageFlipSession extends ChangeNotifier {
   final double width, height, paragraphSpacing;
   final TextStyle style;
   final TextScaler scaler;
-  final String layoutKey;
+  final String layoutKey, readingLayout, verticalDirection;
   final _cache = <int, List<ReadingPage>>{};
   BookPageIndex? index;
   ReadingPage? _page;
@@ -166,6 +168,8 @@ class PageFlipSession extends ChangeNotifier {
         style: style,
         paragraphSpacing: paragraphSpacing,
         scaler: scaler,
+        readingLayout: readingLayout,
+        verticalDirection: verticalDirection,
         cancelled: cancelled,
       );
       if (cancelled()) {

@@ -87,6 +87,7 @@ class ReaderPagerState extends State<ReaderPager>
           previous,
           size,
           particles: effect == PageTurnEffect.particles,
+          ink: effect == PageTurnEffect.ink,
         );
         if (cancelled()) {
           return;
@@ -95,6 +96,7 @@ class ReaderPagerState extends State<ReaderPager>
           current,
           size,
           particles: effect == PageTurnEffect.particles,
+          ink: effect == PageTurnEffect.ink,
         );
         if (cancelled() || _size != size) {
           return;

@@ -65,6 +65,20 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     model.addListener(_modelChanged);
     model.platform.onMenu(_menu);
+    FocusManager.instance.addEarlyKeyEventHandler(_globalKeyEvent);
+  }
+
+  /// macOS 全局 Esc 先于文本框、弹窗和阅读页处理，只最小化，不关闭弹窗或改变阅读位置。
+  KeyEventResult _globalKeyEvent(KeyEvent event) {
+    if (!mounted ||
+        defaultTargetPlatform != TargetPlatform.macOS ||
+        event.logicalKey != LogicalKeyboardKey.escape) {
+      return KeyEventResult.ignored;
+    }
+    if (event is KeyDownEvent) {
+      unawaited(model.platform.minimize().catchError((Object _) {}));
+    }
+    return KeyEventResult.handled;
   }
 
   void _modelChanged() {
@@ -184,6 +198,7 @@ class _ReaderAppState extends State<ReaderApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    FocusManager.instance.removeEarlyKeyEventHandler(_globalKeyEvent);
     model.removeListener(_modelChanged);
     model.dispose();
     super.dispose();

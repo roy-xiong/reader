@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../domain/pagination.dart';
 
@@ -42,6 +43,10 @@ class _TextPagePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     // 透明背景由阅读窗口统一绘制，避免正文背景被重复叠加。
+    if (page.columns.isNotEmpty) {
+      _paintVertical(canvas, size);
+      return;
+    }
     for (final fragment in page.fragments) {
       final painter = TextPainter(
         text: TextSpan(
@@ -64,6 +69,57 @@ class _TextPagePainter extends CustomPainter {
             ..color = (style.color ?? Colors.grey).withValues(alpha: .35)
             ..strokeWidth = .7,
         );
+      }
+    }
+  }
+
+  /// 本次绘制复用相同字形的段落，避免逐字重复创建原生排版对象；结束后统一释放。
+  void _paintVertical(Canvas canvas, Size size) {
+    final painters = <String, TextPainter>{};
+    try {
+      for (final column in page.columns) {
+        final glyphStyle = Pagination.fragmentStyle(
+          style,
+          column.heading,
+        ).copyWith(height: 1);
+        for (final glyph in column.glyphs) {
+          final key = '${column.heading}/${glyph.text}';
+          final painter = painters.putIfAbsent(
+            key,
+            () => TextPainter(
+              text: TextSpan(text: glyph.text, style: glyphStyle),
+              textDirection: TextDirection.ltr,
+              textScaler: scaler,
+            )..layout(),
+          );
+          canvas.save();
+          canvas.translate(
+            column.x + column.width / 2,
+            glyph.y + glyph.advance / 2,
+          );
+          if (glyph.sideways) canvas.rotate(math.pi / 2);
+          painter.paint(
+            canvas,
+            Offset(-painter.width / 2, -painter.height / 2),
+          );
+          canvas.restore();
+        }
+        if (column.separator) {
+          final x = column.rightToLeft
+              ? column.x - 9
+              : column.x + column.width + 9;
+          canvas.drawLine(
+            Offset(x, 0),
+            Offset(x, size.height),
+            Paint()
+              ..color = (style.color ?? Colors.grey).withValues(alpha: .35)
+              ..strokeWidth = .7,
+          );
+        }
+      }
+    } finally {
+      for (final painter in painters.values) {
+        painter.dispose();
       }
     }
   }

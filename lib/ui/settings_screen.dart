@@ -1,6 +1,6 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../domain/models.dart';
 import '../domain/page_turn_effect.dart';
 import 'app_model.dart';
@@ -9,6 +9,7 @@ import 'lock_screen.dart';
 import 'page_effect_demo.dart';
 import 'appearance_settings.dart';
 import 'wifi_upload_screen.dart';
+import 'reader_color_picker.dart';
 
 /// 独立设置页。背景透明度和所有排版选项集中于此，阅读页保持简洁。
 class SettingsScreen extends StatelessWidget {
@@ -88,6 +89,25 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ),
                   AppearanceSettings(model: model),
+                  if (defaultTargetPlatform == TargetPlatform.macOS) ...[
+                    ListTile(
+                      key: const ValueKey('local-book-import'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('导入本地书籍'),
+                      subtitle: const Text('从 Mac 选择 TXT、EPUB、MOBI 等文件，可多选'),
+                      trailing: const ReaderIcon(ReaderGlyph.add),
+                      onTap: model.busy ? null : () => model.importBooks(),
+                    ),
+                    ListTile(
+                      key: const ValueKey('local-folder-import'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('导入书籍文件夹'),
+                      trailing: const ReaderIcon(ReaderGlyph.folder),
+                      onTap: model.busy
+                          ? null
+                          : () => model.importBooks(folder: true),
+                    ),
+                  ],
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Wi-Fi 上传书籍和字体'),
@@ -100,6 +120,53 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ),
                   _section(context, '字体与排版'),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('排版样式'),
+                    trailing: DropdownButton<String>(
+                      key: const ValueKey('reading-layout-selector'),
+                      value: s.readingLayout,
+                      borderRadius: BorderRadius.circular(16),
+                      underline: const SizedBox.shrink(),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'horizontal',
+                          child: Text('横排'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'vertical',
+                          child: Text('古书竖排'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          update(s.copyWith(readingLayout: value));
+                        }
+                      },
+                    ),
+                  ),
+                  if (s.readingLayout == 'vertical')
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('竖排列顺序'),
+                      subtitle: const Text('每列从上往下阅读；行间距控制列距。'),
+                      trailing: DropdownButton<String>(
+                        key: const ValueKey('vertical-direction-selector'),
+                        value: s.verticalDirection,
+                        borderRadius: BorderRadius.circular(16),
+                        underline: const SizedBox.shrink(),
+                        items: const [
+                          DropdownMenuItem(value: 'rtl', child: Text('从右向左')),
+                          DropdownMenuItem(value: 'ltr', child: Text('从左向右')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            update(s.copyWith(verticalDirection: value));
+                          }
+                        },
+                      ),
+                    ),
+
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('正文简繁'),
@@ -334,7 +401,7 @@ class SettingsScreen extends StatelessWidget {
                   _section(context, '关于 Reader'),
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text('阅读 1.3.0'),
+                    title: Text('阅读 1.4.0'),
                     subtitle: Text(
                       '本地书架 · 离线阅读\n支持 TXT、EPUB、MOBI、AZW / AZW3、HTML 的可重排文字。\n受 DRM 保护、纯图片和扫描版电子书暂不支持。',
                     ),
@@ -346,7 +413,7 @@ class SettingsScreen extends StatelessWidget {
                     onTap: () => showLicensePage(
                       context: context,
                       applicationName: '阅读',
-                      applicationVersion: '1.3.0',
+                      applicationVersion: '1.4.0',
                       applicationLegalese: 'GPL-3.0-or-later',
                     ),
                   ),
@@ -431,9 +498,10 @@ class SettingsScreen extends StatelessWidget {
           ),
         OutlinedButton(
           onPressed: () async {
-            final picked = await showDialog<int>(
-              context: context,
-              builder: (_) => _ColorDialog(initial: value, history: history),
+            final picked = await showReaderColorPicker(
+              context,
+              initial: value,
+              history: history,
             );
             if (picked != null) {
               change(picked);
@@ -443,145 +511,5 @@ class SettingsScreen extends StatelessWidget {
         ),
       ],
     ),
-  );
-}
-
-class _ColorDialog extends StatefulWidget {
-  const _ColorDialog({this.initial, this.history = const []});
-  final int? initial;
-  final List<int> history;
-  @override
-  State<_ColorDialog> createState() => _ColorDialogState();
-}
-
-class _ColorDialogState extends State<_ColorDialog> {
-  late final field = TextEditingController(
-    text: ((widget.initial ?? 0xfff5efdf) & 0xffffff)
-        .toRadixString(16)
-        .padLeft(6, '0'),
-  );
-  String? error;
-  @override
-  void dispose() {
-    field.dispose();
-    super.dispose();
-  }
-
-  void submit() {
-    final text = field.text.trim().replaceFirst('#', '');
-    if (!RegExp(r'^[a-fA-F0-9]{6}$').hasMatch(text)) {
-      setState(() => error = '请输入六位十六进制颜色');
-      return;
-    }
-    Navigator.pop(context, 0xff000000 | int.parse(text, radix: 16));
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('自定义颜色'),
-    content: SizedBox(
-      width: 300,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 220),
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children:
-                        [
-                              0xfff7f5ef,
-                              0xfff0e6cf,
-                              0xffcee1d1,
-                              0xffd4e1ed,
-                              0xff171c1b,
-                              0xff252525,
-                              0xff111111,
-                              0xffffffff,
-                              0xffe1d8c6,
-                              0xffbad6cb,
-                            ]
-                            .map(
-                              (color) => InkWell(
-                                onTap: () => Navigator.pop(context, color),
-                                borderRadius: BorderRadius.circular(24),
-                                child: Container(
-                                  width: 38,
-                                  height: 38,
-                                  decoration: BoxDecoration(
-                                    color: Color(color),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.grey.withValues(alpha: .5),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                  ),
-                  if (widget.history.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('我的自定义颜色'),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        for (final color in widget.history)
-                          InkWell(
-                            key: ValueKey('saved-color-$color'),
-                            onTap: () => Navigator.pop(context, color),
-                            child: Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                color: Color(color),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.grey.withValues(alpha: .5),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          TextField(
-            controller: field,
-            key: const ValueKey('hex-color-input'),
-            maxLength: 6,
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[a-fA-F0-9]')),
-            ],
-            decoration: InputDecoration(
-              labelText: '十六进制颜色',
-              prefixText: '#',
-              errorText: error,
-            ),
-            onSubmitted: (_) => submit(),
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('取消'),
-      ),
-      FilledButton(onPressed: submit, child: const Text('使用颜色')),
-    ],
   );
 }

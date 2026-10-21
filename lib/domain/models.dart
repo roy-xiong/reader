@@ -12,6 +12,10 @@ class ReaderSettings {
     this.paragraphSpacing = 12,
     this.backgroundOpacity = 1,
     this.textColor,
+    this.photoTextColor,
+    this.photoGroupId,
+    this.readingLayout = 'horizontal',
+    this.verticalDirection = 'rtl',
     this.backgroundColor,
     this.fontId,
     this.fontName,
@@ -28,7 +32,9 @@ class ReaderSettings {
   final String theme;
   final double fontSize, lineHeight, letterSpacing, paragraphSpacing;
   final double backgroundOpacity;
-  final int? textColor, backgroundColor;
+  final int? textColor, backgroundColor, photoTextColor;
+  final String? photoGroupId;
+  final String readingLayout, verticalDirection;
   final String? fontId, fontName;
   final String pageEffect, scriptMode;
   final bool particleDirectional;
@@ -45,6 +51,12 @@ class ReaderSettings {
     double? paragraphSpacing,
     double? backgroundOpacity,
     int? textColor,
+    int? photoTextColor,
+    String? photoGroupId,
+    String? readingLayout,
+    String? verticalDirection,
+    bool resetPhotoTextColor = false,
+    bool resetPhotoGroup = false,
     int? backgroundColor,
     String? fontId,
     String? fontName,
@@ -67,6 +79,12 @@ class ReaderSettings {
     paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
     backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
     textColor: resetColors ? null : textColor ?? this.textColor,
+    photoTextColor: resetColors || resetPhotoTextColor
+        ? null
+        : photoTextColor ?? this.photoTextColor,
+    photoGroupId: resetPhotoGroup ? null : photoGroupId ?? this.photoGroupId,
+    readingLayout: readingLayout ?? this.readingLayout,
+    verticalDirection: verticalDirection ?? this.verticalDirection,
     backgroundColor: resetColors
         ? null
         : backgroundColor ?? this.backgroundColor,
@@ -91,6 +109,10 @@ class ReaderSettings {
     'paragraphSpacing': paragraphSpacing,
     'backgroundOpacity': backgroundOpacity,
     'textColor': textColor,
+    'photoTextColor': photoTextColor,
+    'photoGroupId': photoGroupId,
+    'readingLayout': readingLayout,
+    'verticalDirection': verticalDirection,
     'backgroundColor': backgroundColor,
     'fontId': fontId,
     'fontName': fontName,
@@ -115,6 +137,14 @@ class ReaderSettings {
     paragraphSpacing: _number(j['paragraphSpacing'], 12, 0, 48),
     backgroundOpacity: _number(j['backgroundOpacity'], 1, 0, 1),
     textColor: j['textColor'] as int?,
+    photoTextColor: j['photoTextColor'] is int
+        ? j['photoTextColor'] as int
+        : null,
+    photoGroupId: j['photoGroupId'] is String
+        ? j['photoGroupId'] as String
+        : null,
+    readingLayout: j['readingLayout'] == 'vertical' ? 'vertical' : 'horizontal',
+    verticalDirection: j['verticalDirection'] == 'ltr' ? 'ltr' : 'rtl',
     backgroundColor: j['backgroundColor'] as int?,
     fontId: j['fontId'] as String?,
     fontName: j['fontName'] as String?,

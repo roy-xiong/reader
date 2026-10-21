@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/painting.dart';
 import 'models.dart';
+import 'vertical_pagination.dart';
 
 /// 分页结果不持有 TextPainter，避免长期保留原生段落对象。
 class PageFragment {
@@ -17,7 +18,15 @@ class PageFragment {
 }
 
 class ReadingPage {
-  const ReadingPage(this.start, this.end, this.fragments);
+  const ReadingPage(
+    this.start,
+    this.end,
+    this.fragments, {
+    this.columns = const [],
+  });
+
+  /// 竖排只保存文字与几何信息，不持有原生段落或字体资源。
+  final List<VerticalColumn> columns;
   final int start, end;
   final List<PageFragment> fragments;
 }
@@ -44,8 +53,23 @@ class Pagination {
     required TextStyle style,
     required double paragraphSpacing,
     required TextScaler scaler,
+    String readingLayout = 'horizontal',
+    String verticalDirection = 'rtl',
     bool Function()? cancelled,
   }) async {
+    if (readingLayout == 'vertical') {
+      return VerticalPagination.layout(
+        document: document,
+        chapter: chapter,
+        width: width,
+        height: height,
+        style: style,
+        paragraphSpacing: paragraphSpacing,
+        scaler: scaler,
+        rightToLeft: verticalDirection != 'ltr',
+        cancelled: cancelled,
+      );
+    }
     final pages = <ReadingPage>[];
     var fragments = <PageFragment>[];
     var y = 0.0, pageStart = chapter.start, offset = chapter.start;
@@ -187,6 +211,8 @@ class BookPageIndex {
     required TextStyle style,
     required double paragraphSpacing,
     required TextScaler scaler,
+    String readingLayout = 'horizontal',
+    String verticalDirection = 'rtl',
     bool Function()? cancelled,
   }) async {
     final starts = <int>[];
@@ -202,6 +228,8 @@ class BookPageIndex {
         style: style,
         paragraphSpacing: paragraphSpacing,
         scaler: scaler,
+        readingLayout: readingLayout,
+        verticalDirection: verticalDirection,
         cancelled: cancelled,
       );
       if (cancelled?.call() == true) {

@@ -28,6 +28,30 @@ class _PinPadState extends State<PinPad> {
   Timer? ticker;
   int previousRemaining = 0;
   final focus = FocusNode();
+
+  /// 部分桌面键盘事件不提供 character，主键盘和数字小键盘均按逻辑键识别。
+  static final _digitKeys = {
+    LogicalKeyboardKey.digit0: '0',
+    LogicalKeyboardKey.digit1: '1',
+    LogicalKeyboardKey.digit2: '2',
+    LogicalKeyboardKey.digit3: '3',
+    LogicalKeyboardKey.digit4: '4',
+    LogicalKeyboardKey.digit5: '5',
+    LogicalKeyboardKey.digit6: '6',
+    LogicalKeyboardKey.digit7: '7',
+    LogicalKeyboardKey.digit8: '8',
+    LogicalKeyboardKey.digit9: '9',
+    LogicalKeyboardKey.numpad0: '0',
+    LogicalKeyboardKey.numpad1: '1',
+    LogicalKeyboardKey.numpad2: '2',
+    LogicalKeyboardKey.numpad3: '3',
+    LogicalKeyboardKey.numpad4: '4',
+    LogicalKeyboardKey.numpad5: '5',
+    LogicalKeyboardKey.numpad6: '6',
+    LogicalKeyboardKey.numpad7: '7',
+    LogicalKeyboardKey.numpad8: '8',
+    LogicalKeyboardKey.numpad9: '9',
+  };
   int get remaining => max(
     0,
     ((widget.model.blockedUntil - DateTime.now().millisecondsSinceEpoch) / 1000)
@@ -36,6 +60,11 @@ class _PinPadState extends State<PinPad> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && focus.canRequestFocus) {
+        focus.requestFocus();
+      }
+    });
     ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       final current = remaining;
       if (mounted && current != previousRemaining) {
@@ -49,6 +78,7 @@ class _PinPadState extends State<PinPad> {
     if (waiting || widget.model.pinBusy || remaining > 0) {
       return;
     }
+    focus.requestFocus();
     if (digit == 'delete') {
       if (digits.isNotEmpty) {
         setState(() => digits = digits.substring(0, digits.length - 1));
@@ -63,6 +93,16 @@ class _PinPadState extends State<PinPad> {
       message = null;
     });
     if (digits.length == 4) {
+      await _submit();
+    }
+  }
+
+  /// 四位自动提交和回车复用同一入口，校验期间忽略重复按键。
+  Future<void> _submit() async {
+    if (digits.length == 4 &&
+        !waiting &&
+        !widget.model.pinBusy &&
+        remaining == 0) {
       setState(() => waiting = true);
       String? error;
       try {
@@ -96,13 +136,31 @@ class _PinPadState extends State<PinPad> {
       if (event is! KeyDownEvent) {
         return KeyEventResult.ignored;
       }
-      if (event.logicalKey == LogicalKeyboardKey.backspace) {
+      final keyboard = HardwareKeyboard.instance;
+      if (keyboard.isMetaPressed ||
+          keyboard.isControlPressed ||
+          keyboard.isAltPressed ||
+          keyboard.isShiftPressed) {
+        return KeyEventResult.ignored;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.backspace ||
+          event.logicalKey == LogicalKeyboardKey.delete) {
         unawaited(enter('delete'));
         return KeyEventResult.handled;
       }
+      if (event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+        unawaited(_submit());
+        return KeyEventResult.handled;
+      }
       final character = event.character;
-      if (character != null && RegExp(r'^\d$').hasMatch(character)) {
-        unawaited(enter(character));
+      final digit =
+          _digitKeys[event.logicalKey] ??
+          (character != null && RegExp(r'^[0-9]$').hasMatch(character)
+              ? character
+              : null);
+      if (digit != null) {
+        unawaited(enter(digit));
         return KeyEventResult.handled;
       }
       return KeyEventResult.ignored;

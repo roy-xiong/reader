@@ -1,6 +1,8 @@
 import Flutter
 import UIKit
 import PhotosUI
+import UniformTypeIdentifiers
+import ImageIO
 
 /**
  * iOS 系统入口。书籍、字体使用 Wi-Fi 上传；背景照片由系统照片选择器提供。
@@ -66,8 +68,10 @@ import PhotosUI
     var configuration = PHPickerConfiguration()
     configuration.filter = .images
     configuration.selectionLimit = 0
+    if #available(iOS 15.0, *) { configuration.selection = .ordered }
     let picker = PHPickerViewController(configuration: configuration)
     picker.delegate = self
+    picker.modalPresentationStyle = .fullScreen
     presenter.present(picker, animated: true)
   }
 
@@ -78,32 +82,43 @@ import PhotosUI
     func load(_ index: Int, _ copies: [String]) {
       guard index < results.count else { finishPhotos(copies); return }
       let provider = results[index].itemProvider
-      guard provider.canLoadObject(ofClass: UIImage.self) else { load(index + 1, copies); return }
-      provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+      guard provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else {
+        load(index + 1, copies); return
+      }
+      // 文件回调中的 URL 仅在回调期间有效；在受控串行队列同步读取，不把临时 URL 留给异步任务。
+      provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self] url, _ in
         guard let self = self else { return }
-        self.imageQueue.async {
-          var next = copies
-          if let image = object as? UIImage, let path = self.writePhoto(image, index: index) { next.append(path) }
-          DispatchQueue.main.async { load(index + 1, next) }
+        let path: String? = self.imageQueue.sync {
+          autoreleasepool { url.flatMap { self.writePhoto(at: $0, index: index) } }
         }
+        var next = copies
+        if let path = path { next.append(path) }
+        DispatchQueue.main.async { load(index + 1, next) }
       }
     }
     load(0, [])
   }
 
-  private func writePhoto(_ image: UIImage, index: Int) -> String? {
-    guard image.size.width > 0, image.size.height > 0 else { return nil }
-    let ratio = min(1, 2048 / max(image.size.width, image.size.height))
-    let size = CGSize(width: max(1, image.size.width * ratio), height: max(1, image.size.height * ratio))
-    let format = UIGraphicsImageRendererFormat()
-    format.scale = 1
-    let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-      image.draw(in: CGRect(origin: .zero, size: size))
-    }
-    guard let data = resized.jpegData(compressionQuality: 0.9) else { return nil }
+  /** 直接从 HEIC/JPEG 等源文件降采样，避免先完整解码高像素照片造成内存峰值。 */
+  private func writePhoto(at sourceURL: URL, index: Int) -> String? {
+    guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL,
+      [kCGImageSourceShouldCache: false] as CFDictionary),
+      let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceThumbnailMaxPixelSize: 2048,
+        kCGImageSourceShouldCacheImmediately: true
+      ] as CFDictionary) else { return nil }
     let url = URL(fileURLWithPath: NSTemporaryDirectory())
       .appendingPathComponent(UUID().uuidString.lowercased() + "_照片\(index + 1).jpg")
-    do { try data.write(to: url, options: .atomic); return url.path } catch { return nil }
+    guard let destination = CGImageDestinationCreateWithURL(url as CFURL,
+      UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+    CGImageDestinationAddImage(destination, image,
+      [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+    guard CGImageDestinationFinalize(destination) else {
+      try? FileManager.default.removeItem(at: url); return nil
+    }
+    return url.path
   }
 
   private func finishPhotos(_ paths: [String]) {

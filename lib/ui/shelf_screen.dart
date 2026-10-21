@@ -143,7 +143,11 @@ class _ShelfScreenState extends State<ShelfScreen> {
                                     size: 18,
                                   ),
                                   label: Text(
-                                    Platform.isIOS ? 'Wi-Fi 上传书籍' : '导入书籍',
+                                    Platform.isIOS
+                                        ? 'Wi-Fi 上传书籍'
+                                        : (Platform.isMacOS
+                                              ? '导入本地书籍'
+                                              : '导入书籍'),
                                   ),
                                 ),
                               ],

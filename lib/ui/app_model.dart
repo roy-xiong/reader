@@ -25,14 +25,33 @@ class AppModel extends ChangeNotifier {
   final FontService fontService;
   final BackgroundImageService imageService;
   List<BackgroundPhoto> _photos = [];
+  List<BackgroundPhotoGroup> _photoGroups = [];
+  List<BackgroundPhotoGroup> get photoGroups => List.unmodifiable(_photoGroups);
+
+  /// 当前组的有序照片；null 表示全部照片，空组不会回退到其他组。
+  List<BackgroundPhoto> get activePhotos {
+    final group = _photoGroups
+        .where((group) => group.id == settings.photoGroupId)
+        .firstOrNull;
+    if (group == null) return photos;
+    final byId = {for (final photo in _photos) photo.id: photo};
+    return List.unmodifiable(
+      group.photoIds.map((id) => byId[id]).whereType<BackgroundPhoto>(),
+    );
+  }
+
   List<int> _textColors = [], _backgroundColors = [];
   List<BackgroundPhoto> get photos => List.unmodifiable(_photos);
   List<int> get textColors => List.unmodifiable(_textColors);
   List<int> get backgroundColors => List.unmodifiable(_backgroundColors);
-  BackgroundPhoto? get currentPhoto =>
-      settings.backgroundMode != 'photos' || _photos.isEmpty
-      ? null
-      : _photos[settings.photoIndex % _photos.length];
+  BackgroundPhoto? get currentPhoto {
+    if (settings.backgroundMode != 'photos') return null;
+    final candidates = activePhotos;
+    return candidates.isEmpty
+        ? null
+        : candidates[settings.photoIndex % candidates.length];
+  }
+
   final Set<String> _registeredFonts = {};
   List<ReaderFont> _fonts = [];
   List<ReaderFont> get fonts => List.unmodifiable(_fonts);
@@ -71,10 +90,27 @@ class AppModel extends ChangeNotifier {
             ),
           )
           .toList();
+      final photoIds = _photos.map((photo) => photo.id).toSet();
+      _photoGroups = (data['photoGroups'] as List? ?? []).whereType<Map>().map((
+        value,
+      ) {
+        final group = BackgroundPhotoGroup.fromJson(
+          Map<String, dynamic>.from(value),
+        );
+        return BackgroundPhotoGroup(
+          id: group.id,
+          name: group.name,
+          photoIds: List.unmodifiable(group.photoIds.where(photoIds.contains)),
+        );
+      }).toList();
+      if (!_photoGroups.any((group) => group.id == settings.photoGroupId)) {
+        settings = settings.copyWith(resetPhotoGroup: true);
+      }
       _textColors = _readColors(data['textColors']);
       _backgroundColors = _readColors(data['backgroundColors']);
       // 旧版单独设置过的颜色也迁入可选历史，不因升级或切换主题丢失。
       _rememberColor(_textColors, settings.textColor);
+      _rememberColor(_textColors, settings.photoTextColor);
       _rememberColor(_backgroundColors, settings.backgroundColor);
       _pin = data['pin'] == null
           ? null
@@ -104,7 +140,8 @@ class AppModel extends ChangeNotifier {
   }
 
   Map<String, dynamic> snapshot() => {
-    'version': 3,
+    'version': 4,
+    'photoGroups': _photoGroups.map((group) => group.toJson()).toList(),
     'photos': _photos.map((photo) => photo.toJson()).toList(),
     'textColors': _textColors,
     'backgroundColors': _backgroundColors,
@@ -320,6 +357,13 @@ class AppModel extends ChangeNotifier {
     updateSettings(settings.copyWith(textColor: color));
   }
 
+  /// 照片文字色独立保存，并复用字体颜色历史；不会退出照片背景。
+  void setPhotoTextColor(int color) {
+    _rememberColor(_textColors, settings.photoTextColor);
+    _rememberColor(_textColors, color);
+    updateSettings(settings.copyWith(photoTextColor: color));
+  }
+
   void setBackgroundColor(int color) {
     _rememberColor(_backgroundColors, settings.backgroundColor);
     _rememberColor(_backgroundColors, color);
@@ -351,20 +395,74 @@ class AppModel extends ChangeNotifier {
       settings.copyWith(
         photoTurns: switchPhoto ? 0 : turns,
         photoIndex: switchPhoto
-            ? (settings.photoIndex + 1) % _photos.length
+            ? (settings.photoIndex + 1) % activePhotos.length
             : settings.photoIndex,
       ),
     );
   }
 
   void selectPhoto(int index) {
-    if (index < 0 || index >= _photos.length) {
+    if (index < 0 || index >= activePhotos.length) {
       return;
     }
     updateSettings(
       settings.copyWith(
         backgroundMode: 'photos',
         photoIndex: index,
+        photoTurns: 0,
+      ),
+    );
+  }
+
+  /// 只改变活动组和轮换游标，不复制照片。恢复上次设置时仍停留在同一组。
+  void selectPhotoGroup(String? id) {
+    if (busy ||
+        locked ||
+        (id != null && !_photoGroups.any((group) => group.id == id))) {
+      return;
+    }
+    updateSettings(
+      settings.copyWith(
+        photoGroupId: id,
+        resetPhotoGroup: id == null,
+        backgroundMode: 'photos',
+        photoIndex: 0,
+        photoTurns: 0,
+      ),
+    );
+  }
+
+  /// 新建或编辑组；成员使用内容标识，可在多组中共享。返回稳定 ID 供界面选择。
+  String? savePhotoGroup({
+    String? id,
+    required String name,
+    required Iterable<String> photoIds,
+  }) {
+    if (busy || locked || name.trim().isEmpty) return null;
+    final available = _photos.map((photo) => photo.id).toSet();
+    final identifier =
+        id ??
+        'group_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1000000)}';
+    final group = BackgroundPhotoGroup(
+      id: identifier,
+      name: name.trim(),
+      photoIds: List.unmodifiable(photoIds.where(available.contains).toSet()),
+    );
+    _photoGroups = [
+      ..._photoGroups.where((item) => item.id != identifier),
+      group,
+    ];
+    updateSettings(settings.copyWith(photoIndex: 0, photoTurns: 0));
+    return identifier;
+  }
+
+  void removePhotoGroup(String id) {
+    if (busy || locked) return;
+    _photoGroups = _photoGroups.where((group) => group.id != id).toList();
+    updateSettings(
+      settings.copyWith(
+        resetPhotoGroup: settings.photoGroupId == id,
+        photoIndex: 0,
         photoTurns: 0,
       ),
     );
@@ -379,6 +477,7 @@ class AppModel extends ChangeNotifier {
     changed();
     var paths = <String>[];
     var imported = 0;
+    final addedIds = <String>[];
     final failures = <String>[];
     try {
       paths = await platform.pickImages();
@@ -392,6 +491,7 @@ class AppModel extends ChangeNotifier {
             p.basename(paths[i]).replaceFirst(RegExp(r'^[a-f0-9-]{36}_'), ''),
           );
           imported++;
+          addedIds.add(photo.id);
           if (!_photos.any((item) => item.id == photo.id)) {
             _photos = [..._photos, photo];
           }
@@ -400,9 +500,23 @@ class AppModel extends ChangeNotifier {
         }
       }
       if (_photos.isNotEmpty && imported > 0) {
+        _photoGroups = _photoGroups
+            .map(
+              (group) => group.id != settings.photoGroupId
+                  ? group
+                  : BackgroundPhotoGroup(
+                      id: group.id,
+                      name: group.name,
+                      photoIds: List.unmodifiable({
+                        ...group.photoIds,
+                        ...addedIds,
+                      }),
+                    ),
+            )
+            .toList();
         settings = settings.copyWith(
           backgroundMode: 'photos',
-          photoIndex: settings.photoIndex % _photos.length,
+          photoIndex: settings.photoIndex % max(1, activePhotos.length),
           photoTurns: 0,
         );
         await flush();
@@ -425,11 +539,23 @@ class AppModel extends ChangeNotifier {
       return;
     }
     final previous = _photos, previousSettings = settings;
+    final previousGroups = _photoGroups;
     busy = true;
     var saved = false;
     final active = currentPhoto?.id;
     _photos = _photos.where((photo) => photo.id != id).toList();
-    final selected = _photos.indexWhere((photo) => photo.id == active);
+    _photoGroups = _photoGroups
+        .map(
+          (group) => BackgroundPhotoGroup(
+            id: group.id,
+            name: group.name,
+            photoIds: List.unmodifiable(
+              group.photoIds.where((photoId) => photoId != id),
+            ),
+          ),
+        )
+        .toList();
+    final selected = activePhotos.indexWhere((photo) => photo.id == active);
     settings = settings.copyWith(
       backgroundMode: _photos.isEmpty ? 'color' : settings.backgroundMode,
       photoIndex: selected < 0 ? 0 : selected,
@@ -446,6 +572,7 @@ class AppModel extends ChangeNotifier {
     } catch (e) {
       if (!saved) {
         _photos = previous;
+        _photoGroups = previousGroups;
         settings = previousSettings;
       }
       error = _message(e);

@@ -207,6 +207,8 @@ class ReaderScreenState extends State<ReaderScreen> {
       style: _pageStyle,
       scaler: _pageScaler,
       paragraphSpacing: model.settings.paragraphSpacing,
+      readingLayout: model.settings.readingLayout,
+      verticalDirection: model.settings.verticalDirection,
       layoutKey: key,
       index: bookPageIndex,
       initialPages: pages,
@@ -257,7 +259,7 @@ class ReaderScreenState extends State<ReaderScreen> {
     final s = model.settings;
     final metricsKey =
         '$width/$height/${s.fontSize}/${s.lineHeight}/${s.letterSpacing}/'
-        '${s.paragraphSpacing}/${s.fontId}/${model.loadedFontId}/${s.fontWeight}/$requestedScript/${scaler.scale(s.fontSize)}';
+        '${s.readingLayout}/${s.verticalDirection}/${s.paragraphSpacing}/${s.fontId}/${model.loadedFontId}/${s.fontWeight}/$requestedScript/${scaler.scale(s.fontSize)}';
     _ensureBookIndex(metricsKey, width, height, style, scaler);
     final key = '$metricsKey/$chapterIndex';
     _pageWidth = width;
@@ -290,7 +292,9 @@ class ReaderScreenState extends State<ReaderScreen> {
           width: width,
           height: height,
           style: style,
-          paragraphSpacing: model.settings.paragraphSpacing,
+          paragraphSpacing: s.paragraphSpacing,
+          readingLayout: s.readingLayout,
+          verticalDirection: s.verticalDirection,
           scaler: scaler,
           cancelled: () => !mounted || ticket != generation,
         );
@@ -337,7 +341,8 @@ class ReaderScreenState extends State<ReaderScreen> {
     if (doc == null) {
       return;
     }
-    final spacing = model.settings.paragraphSpacing;
+    final preferences = model.settings;
+    final spacing = preferences.paragraphSpacing;
     indexDebounce = Timer(const Duration(milliseconds: 180), () async {
       try {
         final index = await BookPageIndex.build(
@@ -346,6 +351,8 @@ class ReaderScreenState extends State<ReaderScreen> {
           height: height,
           style: style,
           paragraphSpacing: spacing,
+          readingLayout: preferences.readingLayout,
+          verticalDirection: preferences.verticalDirection,
           scaler: scaler,
           cancelled: () => !mounted || ticket != indexGeneration,
         );
@@ -620,11 +627,16 @@ class ReaderScreenState extends State<ReaderScreen> {
       final background = s.backgroundColor == null
           ? (dark ? const Color(0xff171c1b) : const Color(0xfff7f5ef))
           : Color(s.backgroundColor!);
-      final foreground = s.textColor == null
-          ? (model.currentPhoto != null
-                ? const Color(0xffe7e7e7)
-                : (dark ? const Color(0xff999999) : const Color(0xff303b35)))
-          : Color(s.textColor!);
+      final int? customText = model.currentPhoto != null
+          ? s.photoTextColor ?? s.textColor
+          : s.textColor;
+      final foreground = customText != null
+          ? Color(customText)
+          : model.currentPhoto != null
+          ? const Color(0xffe7e7e7)
+          : dark
+          ? const Color(0xff999999)
+          : const Color(0xff303b35);
       final style = TextStyle(
         fontFamily: s.fontId != null && s.fontId == model.loadedFontId
             ? 'user_${s.fontId}'
