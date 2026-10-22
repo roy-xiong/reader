@@ -389,6 +389,14 @@ class ReaderPagerState extends State<ReaderPager>
       final vertical =
           PageTurnEffect.parse(widget.effect) == PageTurnEffect.vertical;
       return Listener(
+        onPointerCancel: (_) {
+          // Flutter 已接受的拖动在 PointerCancel 时也可能走 onEnd，不能当成正常松手。
+          // 在手势路由分发前标记取消，确保超过距离阈值时仍回弹且不提交阅读进度。
+          _ignoreDrag = true;
+          if (_interactive && _dragging) {
+            unawaited(_settleDrag(0, cancelled: true));
+          }
+        },
         onPointerSignal: (event) {
           if (widget.enabled &&
               event is PointerScrollEvent &&

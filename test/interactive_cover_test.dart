@@ -173,8 +173,8 @@ void main() {
   for (final opacity in [1.0, .5, 0.0]) {
     testWidgets('纸面覆盖包含底色及留白，旧页下沉，透明度不叠加：$opacity', (tester) async {
       final key = GlobalKey();
-      final oldColor = Colors.red.withValues(alpha: opacity);
-      final newColor = Colors.blue.withValues(alpha: opacity);
+      final oldColor = const Color(0xffff0000).withValues(alpha: opacity);
+      final newColor = const Color(0xff0000ff).withValues(alpha: opacity);
       await tester.pumpWidget(
         Directionality(
           textDirection: TextDirection.ltr,
