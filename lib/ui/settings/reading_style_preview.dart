@@ -163,58 +163,64 @@ class _ReadingStylePreviewState extends State<ReadingStylePreview> {
                   ),
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: ColoredBox(
-                  key: const ValueKey('reading-style-preview-background'),
-                  color: model.currentPhoto == null
-                      ? resolved.background.withValues(
-                          alpha: s.backgroundOpacity,
-                        )
-                      : Colors.transparent,
-                  child: ReadingBackdrop(
-                    model: model,
-                    background: resolved.background,
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final width = math.max(1.0, constraints.maxWidth),
-                              height = math.max(1.0, constraints.maxHeight);
-                          final scaler = MediaQuery.textScalerOf(context);
-                          _layout(width, height, resolved.text, scaler);
-                          if (_layingOut) {
-                            return const Center(
-                              child: SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.5,
-                                ),
-                              ),
-                            );
-                          }
-                          if (_pages.isEmpty) {
-                            return const Center(child: Text('暂无可预览内容'));
-                          }
-                          return ReaderPager(
-                            key: _pager,
-                            effect: s.pageEffect,
-                            particleDirectional: s.particleDirectional,
-                            background: resolved.background.withValues(
-                              alpha: s.backgroundOpacity,
-                            ),
-                            onTurn: _turn,
-                            onToggle: () =>
-                                unawaited(_pager.currentState?.turn(true)),
-                            child: ReaderPage(
-                              page: _pages[_index],
-                              width: width,
-                              style: resolved.text,
-                              scaler: scaler,
-                            ),
-                          );
-                        },
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = math.max(1.0, constraints.maxWidth - 40);
+                    final height = math.max(1.0, constraints.maxHeight - 40);
+                    final scaler = MediaQuery.textScalerOf(context);
+                    final layer = ReadingBackdrop.pageLayer(
+                      model,
+                      resolved.background,
+                      colorKey: const ValueKey(
+                        'reading-style-preview-background',
                       ),
-                    ),
-                  ),
+                    );
+                    _layout(width, height, resolved.text, scaler);
+                    if (_layingOut || _pages.isEmpty) {
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          layer,
+                          Center(
+                            child: _layingOut
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.5,
+                                    ),
+                                  )
+                                : const Text('暂无可预览内容'),
+                          ),
+                        ],
+                      );
+                    }
+                    ReaderPage pageAt(int index) => ReaderPage(
+                      page: _pages[index],
+                      width: width,
+                      style: resolved.text,
+                      scaler: scaler,
+                    );
+                    return ReaderPager(
+                      key: _pager,
+                      effect: s.pageEffect,
+                      particleDirectional: s.particleDirectional,
+                      background: resolved.background.withValues(
+                        alpha: s.backgroundOpacity,
+                      ),
+                      backgroundLayer: layer,
+                      previewBackgroundLayer: layer,
+                      pagePadding: const EdgeInsets.all(20),
+                      onPreview: (forward) async => _pages.length < 2
+                          ? null
+                          : pageAt(
+                              (_index + (forward ? 1 : -1)) % _pages.length,
+                            ),
+                      onTurn: _turn,
+                      onToggle: () =>
+                          unawaited(_pager.currentState?.turn(true)),
+                      child: pageAt(_index),
+                    );
+                  },
                 ),
               ),
             ),

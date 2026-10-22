@@ -74,6 +74,8 @@ class ReaderScreenState extends State<ReaderScreen> {
   final pager = GlobalKey<ReaderPagerState>();
   final brightnessGesture = GlobalKey<ReadingBrightnessGestureState>();
   bool navigationBusy = false;
+  String? _turnCacheKey;
+  final _turnPageCache = <int, List<ReadingPage>>{};
   Future<void> requestTurn(bool forward) async {
     if (_preview != null) {
       _preview?.step(forward);
@@ -176,6 +178,7 @@ class ReaderScreenState extends State<ReaderScreen> {
   @override
   void dispose() {
     _disposePreview();
+    _turnPageCache.clear();
     model.removeListener(_settingsChanged);
     conversionGeneration++;
     scriptService.cancel();
@@ -428,45 +431,109 @@ class ReaderScreenState extends State<ReaderScreen> {
     return '$percent%   ·   $position';
   }
 
-  Future<bool> _turn(bool forward) async {
-    final doc = document;
-    final page = current;
+  /// 相邻页只读预排版；最多缓存两个相邻章节，慢拖与回弹不改进度和照片计数。
+  /// 排版期间若发生缩放、目录跳转、简繁转换或锁屏，丢弃该次结果。
+  Future<({List<ReadingPage> pages, int index, String layout})?> _turnTarget(
+    bool forward,
+  ) async {
+    final doc = document, origin = current;
+    final key = layoutKey, metrics = indexKey;
     if (doc == null ||
-        page == null ||
+        origin == null ||
+        key == null ||
+        metrics == null ||
         arranging ||
         model.locked ||
-        navigationBusy ||
         brightnessGesture.currentState?.blocksPageTurn == true) {
-      return false;
+      return null;
     }
+    bool stale() =>
+        !mounted ||
+        document != doc ||
+        layoutKey != key ||
+        current?.start != origin.start ||
+        arranging ||
+        model.locked;
+    final nextIndex = pageIndex + (forward ? 1 : -1);
+    if (nextIndex >= 0 && nextIndex < pages.length) {
+      return (pages: pages, index: nextIndex, layout: key);
+    }
+    final chapter = doc.chapterAt(origin.start) + (forward ? 1 : -1);
+    if (chapter < 0 || chapter >= doc.chapters.length) return null;
+    if (_turnCacheKey != metrics) {
+      _turnCacheKey = metrics;
+      _turnPageCache.clear();
+    }
+    var adjacent = _turnPageCache.remove(chapter);
+    final preferences = model.settings;
+    adjacent ??= await Pagination.layout(
+      document: doc,
+      chapter: doc.chapters[chapter],
+      width: _pageWidth,
+      height: _pageHeight,
+      style: _pageStyle,
+      scaler: _pageScaler,
+      paragraphSpacing: preferences.paragraphSpacing,
+      readingLayout: preferences.readingLayout,
+      verticalDirection: preferences.verticalDirection,
+      cancelled: stale,
+    );
+    if (stale() || adjacent.isEmpty) return null;
+    _turnPageCache[chapter] = adjacent;
+    while (_turnPageCache.length > 2) {
+      _turnPageCache.remove(_turnPageCache.keys.first);
+    }
+    return (
+      pages: adjacent,
+      index: forward ? 0 : adjacent.length - 1,
+      layout: '$metrics/$chapter',
+    );
+  }
+
+  Future<ReaderPage?> _previewTurn(bool forward) async {
+    if (navigationBusy) return null;
+    final origin = current, key = layoutKey;
+    final target = await _turnTarget(forward);
+    if (!mounted ||
+        target == null ||
+        current != origin ||
+        layoutKey != key ||
+        model.locked ||
+        arranging) {
+      return null;
+    }
+    return ReaderPage(
+      page: target.pages[target.index],
+      width: _pageWidth,
+      style: _pageStyle,
+      scaler: _pageScaler,
+    );
+  }
+
+  /// 点击和手势松手确认共用同一提交路径；跨章复用预排版结果，不再二次排版闪屏。
+  Future<bool> _turn(bool forward) async {
+    if (navigationBusy) return false;
     navigationBusy = true;
+    final origin = current, key = layoutKey;
     try {
-      if (forward && pageIndex + 1 < pages.length) {
-        setState(() {
-          pageIndex++;
-          anchor = pages[pageIndex].start;
-          controls = false;
-        });
-      } else if (!forward && pageIndex > 0) {
-        setState(() {
-          pageIndex--;
-          anchor = pages[pageIndex].start;
-          controls = false;
-        });
-      } else {
-        final index = doc.chapterAt(page.start);
-        if (forward && index + 1 < doc.chapters.length) {
-          await _jump(doc.chapters[index + 1].start);
-        } else if (!forward && index > 0) {
-          await _jump(doc.chapters[index - 1].end - 1);
-        } else {
-          return false;
-        }
-      }
-      _recordProgress(anchor);
-      if (current == null || current?.start == page.start) {
+      final target = await _turnTarget(forward);
+      if (!mounted ||
+          target == null ||
+          current != origin ||
+          layoutKey != key ||
+          model.locked ||
+          arranging ||
+          brightnessGesture.currentState?.blocksPageTurn == true) {
         return false;
       }
+      setState(() {
+        pages = target.pages;
+        pageIndex = target.index;
+        anchor = pages[pageIndex].start;
+        layoutKey = target.layout;
+        controls = false;
+      });
+      _recordProgress(anchor);
       model.recordPageTurn();
       return true;
     } finally {
@@ -638,6 +705,123 @@ class ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
+  /// 翻页视口覆盖整张纸面，正文仍按安全区与四边等距留白排版。
+  /// 背景只交给 ReaderPager 绘制一次，半透明窗口不会因多铺一层纸色而变暗。
+  Widget _readingArea(Color background, Color foreground, TextStyle style) {
+    final s = model.settings;
+    final layer = ReadingBackdrop.pageLayer(model, background);
+    if (loading || error != null) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          layer,
+          SafeArea(
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(error!),
+                          const SizedBox(height: 24),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('返回书架'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final safe = MediaQuery.paddingOf(context);
+        final safeWidth = max(1.0, constraints.maxWidth - safe.horizontal);
+        final safeHeight = max(1.0, constraints.maxHeight - safe.vertical);
+        final margin = min(
+          safeWidth > 700 ? 46.0 : 24.0,
+          max(0.0, (min(safeWidth, safeHeight) - 1) / 2),
+        );
+        final width = max(1.0, safeWidth - margin * 2);
+        final height = max(1.0, safeHeight - margin * 2);
+        final scaler = MediaQuery.textScalerOf(context);
+        _ensureLayout(width, height, style, scaler);
+        final page = current;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (page == null) ...[
+              layer,
+              Center(
+                child: SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    color: foreground,
+                  ),
+                ),
+              ),
+            ] else
+              ReaderPager(
+                key: pager,
+                enabled:
+                    !model.locked &&
+                    !arranging &&
+                    _preview == null &&
+                    brightnessGesture.currentState?.blocksPageTurn != true,
+                effect: s.pageEffect,
+                particleDirectional: s.particleDirectional,
+                background: background.withValues(alpha: s.backgroundOpacity),
+                backgroundLayer: layer,
+                previewBackgroundLayer: ReadingBackdrop.pageLayer(
+                  model,
+                  background,
+                  afterTurn: true,
+                ),
+                pagePadding: safe + EdgeInsets.all(margin),
+                onPreview: _previewTurn,
+                onTurn: _turn,
+                onToggle: () => setState(() => controls = !controls),
+                child: ReaderPage(
+                  key: ValueKey('${page.start}/$layoutKey'),
+                  page: page,
+                  width: width,
+                  style: style,
+                  scaler: scaler,
+                ),
+              ),
+            Positioned(
+              left: safe.left + margin,
+              right: safe.right + margin,
+              bottom: safe.bottom,
+              height: margin,
+              child: IgnorePointer(
+                child: Center(
+                  child: Text(
+                    _progressLabel(),
+                    key: const ValueKey('reading-progress'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: foreground.withValues(alpha: .65),
+                      letterSpacing: .5,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: model,
@@ -716,161 +900,7 @@ class ReaderScreenState extends State<ReaderScreen> {
                     Positioned.fill(
                       child: ReadingDimmer(
                         value: brightness,
-                        child: ColoredBox(
-                          color: model.currentPhoto != null
-                              ? Colors.transparent
-                              : background.withValues(
-                                  alpha: s.backgroundOpacity,
-                                ),
-                          child: ReadingBackdrop(
-                            model: model,
-                            background: background,
-                            child: SafeArea(
-                              child: Stack(
-                                children: [
-                                  if (loading)
-                                    const Center(
-                                      child: CircularProgressIndicator(),
-                                    )
-                                  else if (error != null)
-                                    Center(
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(24),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(error!),
-                                            const SizedBox(height: 24),
-                                            FilledButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(context),
-                                              child: const Text('返回书架'),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    )
-                                  else
-                                    LayoutBuilder(
-                                      builder: (context, constraints) {
-                                        // 以安全区域为边界，四边使用相同的留白；页码放在底部留白内。
-                                        final margin = min(
-                                          constraints.maxWidth > 700
-                                              ? 46.0
-                                              : 24.0,
-                                          max(
-                                            0.0,
-                                            (min(
-                                                      constraints.maxWidth,
-                                                      constraints.maxHeight,
-                                                    ) -
-                                                    1) /
-                                                2,
-                                          ),
-                                        );
-                                        final width = max(
-                                          1.0,
-                                          constraints.maxWidth - margin * 2,
-                                        );
-                                        final height = max(
-                                          1.0,
-                                          constraints.maxHeight - margin * 2,
-                                        );
-                                        final scaler = MediaQuery.textScalerOf(
-                                          context,
-                                        );
-                                        _ensureLayout(
-                                          width,
-                                          height,
-                                          style,
-                                          scaler,
-                                        );
-                                        final page = current;
-                                        return Stack(
-                                          fit: StackFit.expand,
-                                          children: [
-                                            Positioned(
-                                              left: margin,
-                                              right: margin,
-                                              top: margin,
-                                              bottom: margin,
-                                              child: page == null
-                                                  ? Center(
-                                                      child: SizedBox(
-                                                        width: 18,
-                                                        height: 18,
-                                                        child:
-                                                            CircularProgressIndicator(
-                                                              strokeWidth: 1.5,
-                                                              color: foreground,
-                                                            ),
-                                                      ),
-                                                    )
-                                                  : ReaderPager(
-                                                      key: pager,
-                                                      effect: s.pageEffect,
-                                                      particleDirectional:
-                                                          s.particleDirectional,
-                                                      background: background
-                                                          .withValues(
-                                                            alpha: s
-                                                                .backgroundOpacity,
-                                                          ),
-                                                      onTurn: _turn,
-                                                      onToggle: () {
-                                                        if (brightnessGesture
-                                                                .currentState
-                                                                ?.blocksPageTurn !=
-                                                            true) {
-                                                          setState(
-                                                            () => controls =
-                                                                !controls,
-                                                          );
-                                                        }
-                                                      },
-                                                      child: ReaderPage(
-                                                        key: ValueKey(
-                                                          '${page.start}/$layoutKey',
-                                                        ),
-                                                        page: page,
-                                                        width: width,
-                                                        style: style,
-                                                        scaler: scaler,
-                                                      ),
-                                                    ),
-                                            ),
-                                            Positioned(
-                                              left: margin,
-                                              right: margin,
-                                              bottom: 0,
-                                              height: margin,
-                                              child: Center(
-                                                child: Text(
-                                                  _progressLabel(),
-                                                  key: const ValueKey(
-                                                    'reading-progress',
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    fontSize: 11,
-                                                    color: foreground
-                                                        .withValues(alpha: .65),
-                                                    letterSpacing: .5,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        );
-                                      },
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                        child: _readingArea(background, foreground, style),
                       ),
                     ),
                     Positioned.fill(
